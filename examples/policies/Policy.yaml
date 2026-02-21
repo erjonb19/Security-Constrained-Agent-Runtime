@@ -1,0 +1,54 @@
+# Policy configuration (DESIGN.md §3.1)
+# Used by src/policies/parser.load_policy()
+
+version: "1.0"
+default_policy: deny
+
+capabilities:
+  - name: filesystem.read
+    allowed: true
+    constraints:
+      paths:
+        allow: ["/workspace/**"]
+        deny: ["/workspace/.git/**", "/workspace/**/*.key", "/workspace/**/.env"]
+      max_file_size: 10MB
+      require_approval: false
+
+  - name: filesystem.write
+    allowed: true
+    constraints:
+      paths:
+        allow: ["/workspace/src/**", "/workspace/tests/**"]
+        deny: ["/workspace/.git/**", "/workspace/**/*.key"]
+      require_approval: true
+
+  - name: git.commit
+    allowed: true
+    constraints:
+      prevent_history_rewrite: true
+      prevent_force_push: true
+      require_approval: true
+
+  - name: git.push
+    allowed: true
+    constraints:
+      prevent_force_push: true
+      require_approval: true
+
+  - name: shell.execute
+    allowed: false
+
+  - name: http.fetch
+    allowed: true
+    constraints:
+      endpoints:
+        allow: ["https://api.github.com/**", "https://pypi.org/**"]
+        deny: ["http://**"]
+      require_approval: true
+      max_response_size: 5MB
+
+  - name: package_manager.query
+    allowed: true
+    constraints:
+      operations: ["list", "search", "info"]
+      require_approval: false

@@ -1,0 +1,4 @@
+# Exclude doc(s) folder from git
+doc/
+docs/
+*.pyc
