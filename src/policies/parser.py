@@ -34,6 +34,20 @@ except ImportError:
 
 
 # -----------------------------------------------------------------------------
+# Default Fallback Configurations
+# -----------------------------------------------------------------------------
+
+# Look for the default policy in the same directory as this parser script
+DEFAULT_POLICY_PATH = Path(__file__).parent / "default_policy.json"
+
+# Ultimate fail-safe: If no files exist, load this zero-trust profile
+HARDCODED_SAFE_DEFAULT = {
+    "version": "1.0",
+    "default_policy": "deny",
+    "capabilities": []
+}
+
+# -----------------------------------------------------------------------------
 # Internal structures (DESIGN.md §3.1 – Policy Structure)
 # -----------------------------------------------------------------------------
 
@@ -61,7 +75,7 @@ def _ensure_list(value: Any, key: str) -> list[str]:
         logger.debug("%s: list of %d item(s)", key, len(out))
         return out
     out = [str(value).strip()]
-    logger.debug("%s: single value -> %s", key, out)
+    logger.debug("%s: single value -> %s", out)
     return out
 
 
@@ -76,6 +90,7 @@ def _ensure_constraints(raw: Any) -> dict[str, Any]:
         logger.debug("constraints: raw is None or not dict -> {}")
         return {}
     out: dict[str, Any] = {}
+    
     # Path constraints – stored as lists; glob matching done via pathspec (plan §1.1)
     if "paths" in raw and isinstance(raw["paths"], dict):
         p = raw["paths"]
@@ -85,6 +100,7 @@ def _ensure_constraints(raw: Any) -> dict[str, Any]:
         }
     else:
         out["paths"] = {"allow": [], "deny": []}
+        
     # Endpoint constraints – same allow/deny list pattern (design §3.1)
     if "endpoints" in raw and isinstance(raw["endpoints"], dict):
         e = raw["endpoints"]
@@ -94,6 +110,7 @@ def _ensure_constraints(raw: Any) -> dict[str, Any]:
         }
     else:
         out["endpoints"] = {"allow": [], "deny": []}
+        
     # Resource limits and flags
     if "max_file_size" in raw and raw["max_file_size"] is not None:
         out["max_file_size"] = raw["max_file_size"]
@@ -107,6 +124,7 @@ def _ensure_constraints(raw: Any) -> dict[str, Any]:
         out["prevent_force_push"] = bool(raw["prevent_force_push"])
     if "operations" in raw and isinstance(raw["operations"], list):
         out["operations"] = [str(x) for x in raw["operations"]]
+        
     logger.debug("constraints: normalized keys %s", list(out.keys()))
     return out
 
@@ -158,32 +176,41 @@ def _parse_capabilities(raw: Any) -> list[dict[str, Any]]:
 # -----------------------------------------------------------------------------
 
 
-def _load_raw_from_file(path: str | Path) -> dict[str, Any]:
+def _load_raw_from_file(path: str | Path | None) -> dict[str, Any]:
     """
-    Load policy from file path (YAML or JSON).
-    Adapted from NeMo Guardrails config loading pattern: load from path,
-    support YAML/JSON (COMPONENT_REUSE §5.1, §7 – nemoguardrails/config/config.py).
+    Load policy from file path (YAML or JSON). Falls back to defaults if missing.
     """
+    if path is None:
+        logger.warning("No policy path provided. Attempting to load default policy.")
+        path = DEFAULT_POLICY_PATH
+
     path = Path(path)
+    
+    if not path.exists() or not path.is_file():
+        if path == DEFAULT_POLICY_PATH:
+            logger.error(f"Default policy file missing at {path}. Using hardcoded safe defaults.")
+            return HARDCODED_SAFE_DEFAULT
+        else:
+            logger.warning(f"Policy file '{path}' not found or is a directory. Falling back to default.")
+            if DEFAULT_POLICY_PATH.exists() and DEFAULT_POLICY_PATH.is_file():
+                path = DEFAULT_POLICY_PATH
+            else:
+                logger.error("Default policy file also missing. Using hardcoded safe defaults.")
+                return HARDCODED_SAFE_DEFAULT
+
     logger.debug("load_raw: path=%s", path.resolve())
-    if not path.exists():
-        raise FileNotFoundError(f"Policy file not found: {path}")
-    if not path.is_file():
-        raise IsADirectoryError(f"Policy path is a directory: {path}")
 
     suffix = path.suffix.lower()
     text = path.read_text(encoding="utf-8")
     logger.debug("load_raw: suffix=%s, read %d bytes", suffix or "(none)", len(text))
 
     if suffix in (".yaml", ".yml"):
-        # NeMo Guardrails: YAML config structure (COMPONENT_REUSE §5.1)
         data = yaml.safe_load(text)
         logger.debug("load_raw: parsed as YAML")
     elif suffix == ".json":
         data = json.loads(text)
         logger.debug("load_raw: parsed as JSON")
     else:
-        # Try YAML first, then JSON (e.g. extensionless or .config)
         try:
             data = yaml.safe_load(text)
             logger.debug("load_raw: parsed as YAML (no extension)")
@@ -192,8 +219,10 @@ def _load_raw_from_file(path: str | Path) -> dict[str, Any]:
             logger.debug("load_raw: parsed as JSON (fallback)")
 
     if not isinstance(data, dict):
-        raise ValueError("Policy root must be a mapping (YAML/JSON object)")
-    logger.debug("load_raw: root keys %s", list(data.keys()) if isinstance(data, dict) else "n/a")
+        logger.error("Policy root must be a mapping. Falling back to hardcoded defaults.")
+        return HARDCODED_SAFE_DEFAULT
+        
+    logger.debug("load_raw: root keys %s", list(data.keys()))
     return data
 
 
@@ -202,24 +231,10 @@ def _load_raw_from_file(path: str | Path) -> dict[str, Any]:
 # -----------------------------------------------------------------------------
 
 
-def load_policy(path: str | Path) -> dict[str, Any]:
+def load_policy(path: str | Path | None = None) -> dict[str, Any]:
     """
     Load policy from file path (YAML or JSON) and parse into internal structure.
-
-    Internal structure (DESIGN.md §3.1):
-    - version: str (e.g. "1.0")
-    - default_policy: "deny" | "allow"
-    - capabilities: list of { name, allowed, constraints }
-
-    Each capability's constraints may include:
-    - paths.allow / paths.deny (glob lists; matching via pathspec – plan §1.1)
-    - endpoints.allow / endpoints.deny (glob lists)
-    - max_file_size, max_response_size, require_approval,
-      prevent_history_rewrite, prevent_force_push, operations
-
-    Component reuse:
-    - NeMo Guardrails: loading from path, YAML/JSON (COMPONENT_REUSE §5.1, §7).
-    - OPA: deny takes precedence over allow for path/endpoint lists (§2.2).
+    If no path is provided, falls back to the default policy file.
     """
     raw = _load_raw_from_file(path)
     logger.debug("load_policy: raw loaded, normalizing")
@@ -245,22 +260,12 @@ def load_policy(path: str | Path) -> dict[str, Any]:
 def compile_path_specs(
     allow_patterns: list[str], deny_patterns: list[str]
 ) -> tuple[Any, Any]:
-    """
-    Compile path allow/deny glob lists into pathspec matchers.
-
-    OPA pattern (COMPONENT_REUSE §2.2): deny is evaluated first; if a path
-    matches deny it is denied; otherwise allow is checked. We return (allow_spec, deny_spec)
-    so the policy engine can apply: if deny matches → deny; elif allow matches → allow.
-
-    Uses pathspec (plan §1.1) with gitignore-style patterns; glob-style patterns
-    are converted (e.g. ** for recursive).
-    """
+    """Compile path allow/deny glob lists into pathspec matchers."""
     if pathspec is None:
         logger.debug("compile_path_specs: pathspec module not available -> (None, None)")
         return (None, None)
 
     def to_gitignore_lines(patterns: list[str]) -> list[str]:
-        # pathspec uses gitignore syntax; ** is supported
         return [p for p in patterns if p]
 
     allow_lines = to_gitignore_lines(allow_patterns)
@@ -280,31 +285,23 @@ def path_matches_globs(
     allow_spec: Any = None,
     deny_spec: Any = None,
 ) -> bool:
-    """
-    Return True if path is allowed by allow/deny globs (OPA §2.2: deny takes precedence).
-
-    If allow_spec/deny_spec are provided, use them; otherwise compile from
-    allow_patterns/deny_patterns. Path should be normalized (e.g. absolute).
-    """
+    """Return True if path is allowed by allow/deny globs."""
     path_str = str(Path(path).resolve())
     if deny_spec is None or allow_spec is None:
         allow_spec, deny_spec = compile_path_specs(allow_patterns, deny_patterns)
     if pathspec is None:
-        # Fallback: no pathspec – treat as allow if in allow list as literal, and not in deny
         if deny_patterns and path_str in deny_patterns:
             logger.debug("path_matches_globs: path %r in deny list (literal) -> False", path_str)
             return False
         result = path_str in allow_patterns if allow_patterns else False
         logger.debug("path_matches_globs: path %r (pathspec unavailable) -> %s", path_str, result)
         return result
-    # OPA: deny first (COMPONENT_REUSE §2.2)
     if deny_spec and deny_spec.match_file(path_str):
         logger.debug("path_matches_globs: path %r matched deny -> False", path_str)
         return False
     if allow_spec and allow_spec.match_file(path_str):
         logger.debug("path_matches_globs: path %r matched allow -> True", path_str)
         return True
-    # No allow match → deny (default-deny)
     result = not allow_patterns
     logger.debug("path_matches_globs: path %r no allow match, allow_patterns empty=%s -> %s", path_str, not allow_patterns, result)
     return result
@@ -313,10 +310,7 @@ def path_matches_globs(
 def endpoint_matches_globs(
     url: str, allow_patterns: list[str], deny_patterns: list[str]
 ) -> bool:
-    """
-    Return True if URL is allowed by endpoint allow/deny globs (design §3.1).
-    Deny takes precedence (OPA §2.2). Uses fnmatch-style matching for URL patterns.
-    """
+    """Return True if URL is allowed by endpoint allow/deny globs."""
     import fnmatch
     url_norm = url.strip()
     for pattern in deny_patterns:
@@ -339,13 +333,13 @@ def endpoint_matches_globs(
 
 def _main() -> None:
     parser = argparse.ArgumentParser(
-        description="Load and parse a policy file (YAML or JSON), print the normalized structure."
+        description="Load and parse a policy file (YAML or JSON), print the normalized structure. Falls back to default if no path provided."
     )
     parser.add_argument(
         "path",
         nargs="?",
-        default="examples/policies/Policy.yaml",
-        help="Path to policy file (default: examples/policies/Policy.yaml)",
+        default=None,
+        help="Path to policy file (defaults to default_policy.json in script dir)",
     )
     parser.add_argument(
         "--debug",
@@ -366,11 +360,11 @@ def _main() -> None:
     if not args.debug:
         logging.getLogger(__name__).setLevel(logging.WARNING)
 
-    path = Path(args.path)
-    if not path.is_absolute():
-        # Resolve relative to cwd; common when run from repo root
-        path = path.resolve()
-    policy = load_policy(path)
+    # Use the passed path directly; if it's None, load_policy handles the fallback
+    path_to_load = Path(args.path).resolve() if args.path else None
+    
+    policy = load_policy(path_to_load)
+    
     if args.json:
         print(json.dumps(policy, indent=2))
     else:
