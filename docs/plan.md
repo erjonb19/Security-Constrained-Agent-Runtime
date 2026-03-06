@@ -28,7 +28,7 @@ This plan is derived from [docs/DESIGN.md](DESIGN.md) and the current repo state
   - Each capability: `name` (e.g. `filesystem.read`), `allowed` (bool), `constraints` (paths, endpoints, resource limits, `require_approval`, etc.).  
   - Support globs for `paths.allow`/`paths.deny` and `endpoints.allow`/`endpoints.deny` (e.g. via `pathspec`).
 
-- **[src/policies/validator.py](src/policies/validator.py)**  
+* **[src/policies/validator.py](../src/policies/validator.py)**
   - Validate parsed policy against schema: required fields, valid capability names, constraint shapes (path lists, endpoint lists, numeric limits, booleans).  
   - Reject invalid policies with clear errors.
 
