@@ -70,11 +70,11 @@ This plan is derived from [docs/DESIGN.md](DESIGN.md) and the current repo state
 
 ### 1.5 Basic tools (filesystem, git)
 
-- **[src/tools/filesystem.py](src/tools/filesystem.py)**  
+- * **[src/tools/filesystem.py](../src/tools/filesystem.py)**
   - Implement read/write per design §5.3: path normalization, traversal prevention (e.g. reject `..` outside allowed base), enforce `paths.allow`/`paths.deny` and `max_file_size` from policy (passed in or read from context).  
   - Support text and binary; return results in a consistent shape for the runtime.
 
-- **[src/tools/git_ops.py](src/tools/git_ops.py)**  
+* **[src/tools/git_ops.py](../src/tools/git_ops.py)**
   - Implement commit, push, pull; enforce `prevent_history_rewrite`, `prevent_force_push` (design §3.1, §5.3).  
   - Use GitPython (add to requirements) or subprocess with strict checks; block force push and history-rewriting commands.
 
