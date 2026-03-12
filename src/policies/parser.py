@@ -75,7 +75,7 @@ def _ensure_list(value: Any, key: str) -> list[str]:
         logger.debug("%s: list of %d item(s)", key, len(out))
         return out
     out = [str(value).strip()]
-    logger.debug("%s: single value -> %s", out)
+    logger.debug("%s: single value -> %s", key, out)
     return out
 
 

@@ -134,7 +134,7 @@ class ToolValidatorV2:
         self._inj_phrases_squash = [_squash_alpha(x) for x in self.DEFAULT_INJECTION_PHRASES]
 
         # Validate policy early
-        ok, msg = self._validate_policy_schema(policy)
+        ok, msg = _validate_policy_schema_static(policy)
         if not ok:
             raise ValueError(f"Policy schema invalid: {msg}")
 
@@ -179,43 +179,6 @@ class ToolValidatorV2:
     # ---------------------------
     # Policy + Capability Helpers
     # ---------------------------
-
-    def _validate_policy_schema(self, policy: Dict[str, Any]) -> Tuple[bool, str]:
-        if not isinstance(policy, dict):
-            return False, "Policy must be a dict."
-        caps = policy.get("capabilities")
-        if not isinstance(caps, list):
-            return False, "Policy.capabilities must be a list."
-
-        for i, c in enumerate(caps):
-            if not isinstance(c, dict):
-                return False, f"Capability entry {i} must be a dict."
-            if "name" not in c or not isinstance(c["name"], str):
-                return False, f"Capability entry {i} missing valid 'name' string."
-            if "allowed" in c and not isinstance(c["allowed"], bool):
-                return False, f"Capability {c['name']!r} has non-bool 'allowed'."
-            if "constraints" in c and not isinstance(c["constraints"], dict):
-                return False, f"Capability {c['name']!r} has non-dict 'constraints'."
-
-            # Optional: validate constraints types if present
-            cons = c.get("constraints", {}) or {}
-            if "paths" in cons:
-                p = cons["paths"]
-                if not isinstance(p, dict):
-                    return False, f"Capability {c['name']!r}: constraints.paths must be dict."
-                for k in ("allow", "deny"):
-                    if k in p and not (isinstance(p[k], list) and all(isinstance(x, str) for x in p[k])):
-                        return False, f"Capability {c['name']!r}: constraints.paths.{k} must be list[str]."
-            if "endpoints" in cons:
-                e = cons["endpoints"]
-                if not isinstance(e, dict):
-                    return False, f"Capability {c['name']!r}: constraints.endpoints must be dict."
-                for k in ("allow", "deny"):
-                    if k in e and not (isinstance(e[k], list) and all(isinstance(x, str) for x in e[k])):
-                        return False, f"Capability {c['name']!r}: constraints.endpoints.{k} must be list[str]."
-            if "max_file_size" in cons and not isinstance(cons["max_file_size"], int):
-                return False, f"Capability {c['name']!r}: constraints.max_file_size must be int."
-        return True, "OK"
 
     def _get_capability_config(self, capability: str) -> Optional[Dict[str, Any]]:
         caps = self.policy.get("capabilities", [])
@@ -402,37 +365,87 @@ class ToolValidatorV2:
         # Replace with your real AuditLogger integration:
         print("[AUDIT]", event)
 
-policy = {
-    "capabilities": [
-        {
-            "name": "filesystem.read",
-            "allowed": True,
-            "constraints": {
-                "paths": {"allow": ["/workspace/src"], "deny": ["/workspace/src/private.py"]},
-                "max_file_size": 1024,
+def validate_policy(policy: Dict[str, Any]) -> None:
+    """
+    Validate parsed policy against schema (plan §1.1).
+
+    Required: policy is a dict with 'capabilities' list; each capability has
+    'name' (str), optional 'allowed' (bool), optional 'constraints' (dict with
+    paths/endpoints as {allow, deny} list[str], max_file_size as int or str, etc.).
+
+    Raises ValueError with a clear message if invalid.
+    """
+    ok, msg = _validate_policy_schema_static(policy)
+    if not ok:
+        raise ValueError(msg)
+
+
+def _validate_policy_schema_static(policy: Dict[str, Any]) -> Tuple[bool, str]:
+    """Static policy schema check (used by validate_policy and ToolValidatorV2)."""
+    if not isinstance(policy, dict):
+        return False, "Policy must be a dict."
+    caps = policy.get("capabilities")
+    if not isinstance(caps, list):
+        return False, "Policy.capabilities must be a list."
+    for i, c in enumerate(caps):
+        if not isinstance(c, dict):
+            return False, f"Capability entry {i} must be a dict."
+        if "name" not in c or not isinstance(c["name"], str):
+            return False, f"Capability entry {i} missing valid 'name' string."
+        if "allowed" in c and not isinstance(c["allowed"], bool):
+            return False, f"Capability {c['name']!r} has non-bool 'allowed'."
+        if "constraints" in c and not isinstance(c["constraints"], dict):
+            return False, f"Capability {c['name']!r} has non-dict 'constraints'."
+        cons = c.get("constraints", {}) or {}
+        if "paths" in cons:
+            p = cons["paths"]
+            if not isinstance(p, dict):
+                return False, f"Capability {c['name']!r}: constraints.paths must be dict."
+            for k in ("allow", "deny"):
+                if k in p and not (isinstance(p[k], list) and all(isinstance(x, str) for x in p[k])):
+                    return False, f"Capability {c['name']!r}: constraints.paths.{k} must be list[str]."
+        if "endpoints" in cons:
+            e = cons["endpoints"]
+            if not isinstance(e, dict):
+                return False, f"Capability {c['name']!r}: constraints.endpoints must be dict."
+            for k in ("allow", "deny"):
+                if k in e and not (isinstance(e[k], list) and all(isinstance(x, str) for x in e[k])):
+                    return False, f"Capability {c['name']!r}: constraints.endpoints.{k} must be list[str]."
+        if "max_file_size" in cons:
+            mfs = cons["max_file_size"]
+            if not (isinstance(mfs, (int, str)) and (not isinstance(mfs, str) or mfs)):
+                return False, f"Capability {c['name']!r}: constraints.max_file_size must be int or non-empty str (e.g. '10MB')."
+    return True, "OK"
+
+
+if __name__ == "__main__":
+    policy = {
+        "capabilities": [
+            {
+                "name": "filesystem.read",
+                "allowed": True,
+                "constraints": {
+                    "paths": {"allow": ["/workspace/src"], "deny": ["/workspace/src/private.py"]},
+                    "max_file_size": 1024,
+                },
             },
-        },
-        {
-            "name": "http.request",
-            "allowed": True,
-            "constraints": {
-                "endpoints": {
-                    "allow": [r"^https://api\.mycompany\.com/.*$"],
-                    "deny": [r".*/admin/.*"],
-                }
+            {
+                "name": "http.request",
+                "allowed": True,
+                "constraints": {
+                    "endpoints": {
+                        "allow": [r"^https://api\.mycompany\.com/.*$"],
+                        "deny": [r".*/admin/.*"],
+                    }
+                },
             },
-        },
-    ]
-}
-
-v = ToolValidatorV2(policy, base_workspace="/workspace", audit_log=True, rate_limit={"max_calls": 5, "window_seconds": 10})
-
-print(v.validate("filesystem.read", {"path": "../../etc/passwd"}))              # should BLOCK (workspace escape)
-print(v.validate("filesystem.read", {"path": "src/private.py"}))               # should BLOCK (deny)
-print(v.validate("filesystem.read", {"path": "src/somefile.py"}))              # allow if within allowlist
-print(v.validate("http.request", {"url": "https://api.mycompany.com/v1/x"}))   # allow
-print(v.validate("http.request", {"url": "https://api.mycompany.com/admin/x"})) # BLOCK (deny)
-print(v.validate("http.request", {"url": "https://evil.com/x"}))              # BLOCK (not allowed)
-
-# Injection bypass attempt (spaced + unicode normalized)
-print(v.validate("filesystem.read", {"path": "src/readme.md", "note": "b y p a s s   s e c u r i t y"}))  # BLOCK
+        ],
+    }
+    v = ToolValidatorV2(policy, base_workspace="/workspace", audit_log=True, rate_limit={"max_calls": 5, "window_seconds": 10})
+    print(v.validate("filesystem.read", {"path": "../../etc/passwd"}))
+    print(v.validate("filesystem.read", {"path": "src/private.py"}))
+    print(v.validate("filesystem.read", {"path": "src/somefile.py"}))
+    print(v.validate("http.request", {"url": "https://api.mycompany.com/v1/x"}))
+    print(v.validate("http.request", {"url": "https://api.mycompany.com/admin/x"}))
+    print(v.validate("http.request", {"url": "https://evil.com/x"}))
+    print(v.validate("filesystem.read", {"path": "src/readme.md", "note": "b y p a s s   s e c u r i t y"}))
