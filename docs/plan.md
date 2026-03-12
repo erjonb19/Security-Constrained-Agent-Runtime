@@ -142,7 +142,10 @@ After Phase 1, the runtime can: load policy, evaluate capabilities, enforce path
 
 ### 4.1 Test layout and harness
 
-- Add unit tests under `tests/unit/` for: parser, validator, policy_engine, parameter_validator, injection_detector, explainer, redaction, each tool.  
+- **Layout:** Unit tests live under `tests/unit/`; shared fixtures in `tests/conftest.py`. Config: `pytest.ini` (testpaths=`tests`, pythonpath=`.`). No production code changes required to run tests.
+- **Run:** From repo root: `pytest` or `pytest tests/unit/` (optionally `pip install -e .` so `src` is importable; or PYTHONPATH includes repo root).
+- **Current unit tests (plan §4.1):** `test_parser.py`, `test_validator.py`, `test_defaults.py`, `test_capability.py`, `test_policy_engine.py` — covering parser load/path/endpoint/compile, validator schema and ToolValidatorV2, defaults get_default_policy/get_development_policy, capability constants/resolve/is_high_risk/is_known, policy engine load/evaluate/get_explanation and Decision.
+- Add further unit tests under `tests/unit/` for: parameter_validator, injection_detector, explainer, redaction, each tool (as those components are implemented).  
 - Add integration tests under `tests/integration/` for: full `execute_tool` flow with real policy file, filesystem and git tools, deny/allow and explanation.  
 - Add security tests under `tests/security/` for adversarial scenarios (design §6.1):  
   1. Prompt injection (malicious prompts, commands in tool output).  
