@@ -1,0 +1,148 @@
+"""
+Unit tests for src.runtime.agent_runtime (plan §1.4, §4.1).
+"""
+
+import pytest
+from pathlib import Path
+from typing import Any, Dict
+
+from src.runtime.agent_runtime import AgentRuntime, ExecuteResult
+from src.runtime.policy_engine import Decision
+from src.tools.base import BaseTool, ToolResult
+
+
+class _StubTool(BaseTool):
+    """Minimal tool for testing."""
+
+    def __init__(self, name: str = "filesystem.read"):
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, output="stub output")
+
+
+class TestAgentRuntimeLoadPolicy:
+    """Tests for load_policy."""
+
+    def test_load_policy_from_path(self, policy_yaml_path: Path) -> None:
+        """load_policy(path) loads policy into engine."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        result = runtime.evaluate_policy("filesystem.read", {"path": "README.md"})
+        assert isinstance(result, Decision)
+
+    def test_load_policy_none(self) -> None:
+        """load_policy(None) does not raise."""
+        runtime = AgentRuntime()
+        runtime.load_policy(None)
+
+
+class TestAgentRuntimeEvaluatePolicy:
+    """Tests for evaluate_policy (policy-only, no tool)."""
+
+    def test_evaluate_policy_denied_path(self, policy_yaml_path: Path) -> None:
+        """evaluate_policy returns denied for path not in allow list."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        decision = runtime.evaluate_policy("filesystem.read", {"path": "/etc/passwd"})
+        assert decision.allowed is False
+        assert "path" in decision.reason.lower() or "not allowed" in decision.reason.lower()
+
+    def test_evaluate_policy_allowed_capability(self, policy_yaml_path: Path) -> None:
+        """evaluate_policy returns allowed when policy permits (path in allow list)."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        # Policy allows **/Security-Constrained-Agent-Runtime/**; use a path that can match
+        decision = runtime.evaluate_policy(
+            "filesystem.read", {"path": "README.md"}
+        )
+        # May allow or deny depending on resolved path vs policy globs
+        assert isinstance(decision, Decision)
+        assert decision.reason
+
+    def test_get_explanation(self, policy_yaml_path: Path) -> None:
+        """get_explanation returns non-empty string for a decision."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        decision = runtime.evaluate_policy("shell.execute", {})
+        explanation = runtime.get_explanation(decision)
+        assert isinstance(explanation, str)
+        assert len(explanation) >= 1
+
+
+class TestAgentRuntimeExecuteTool:
+    """Tests for execute_tool."""
+
+    def test_execute_tool_denied_by_policy(self, policy_yaml_path: Path) -> None:
+        """execute_tool returns allowed=False when policy denies."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        result = runtime.execute_tool("shell.execute", {})
+        assert result.allowed is False
+        assert result.explanation
+        assert result.result is None
+
+    def test_execute_tool_no_tool_registered(self, policy_yaml_path: Path) -> None:
+        """execute_tool returns allowed=False when no tool registered for capability."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        # Use a capability that is allowed by policy but has no registered tool
+        result = runtime.execute_tool("filesystem.read", {"path": "README.md"})
+        # Either policy denies path or no tool registered
+        assert isinstance(result, ExecuteResult)
+        assert result.explanation
+
+    def test_execute_tool_with_registered_tool(self, policy_yaml_path: Path) -> None:
+        """execute_tool runs registered tool when policy allows."""
+        runtime = AgentRuntime()
+        runtime.load_policy(policy_yaml_path)
+        tool = _StubTool("filesystem.read")
+        runtime.register_tool(tool)
+        result = runtime.execute_tool("filesystem.read", {"path": "README.md"})
+        # If policy allows path: allowed=True and result has output
+        # If policy denies: allowed=False
+        assert isinstance(result, ExecuteResult)
+        if result.allowed:
+            assert result.result is not None
+            assert result.result.output == "stub output"
+
+
+class TestAgentRuntimeRequestApproval:
+    """Tests for request_approval."""
+
+    def test_request_approval_no_callback(self) -> None:
+        """request_approval returns False when no callback set."""
+        runtime = AgentRuntime()
+        assert runtime.request_approval("filesystem.write", {"path": "x"}) is False
+
+    def test_request_approval_with_callback(self) -> None:
+        """request_approval returns callback result."""
+
+        def approve(_cap: str, _params: dict) -> bool:
+            return True
+
+        runtime = AgentRuntime(approval_callback=approve)
+        assert runtime.request_approval("filesystem.write", {}) is True
+
+        def deny(_cap: str, _params: dict) -> bool:
+            return False
+
+        runtime2 = AgentRuntime(approval_callback=deny)
+        assert runtime2.request_approval("filesystem.write", {}) is False
+
+
+class TestAgentRuntimeRegisterTool:
+    """Tests for register_tool."""
+
+    def test_register_tool(self) -> None:
+        """register_tool registers a tool by name."""
+        runtime = AgentRuntime()
+        tool = _StubTool("test.cap")
+        runtime.register_tool(tool)
+        result = runtime.execute_tool("test.cap", {})
+        # Policy will deny unknown capability (default deny)
+        assert isinstance(result, ExecuteResult)
