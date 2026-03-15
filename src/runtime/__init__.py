@@ -16,6 +16,7 @@ from .capability import (
     is_known_capability,
 )
 from .policy_engine import PolicyEngine, Decision
+from .agent_runtime import AgentRuntime, ExecuteResult
 
 __all__ = [
     "ALL_CAPABILITIES",
@@ -33,4 +34,6 @@ __all__ = [
     "is_known_capability",
     "PolicyEngine",
     "Decision",
+    "AgentRuntime",
+    "ExecuteResult",
 ]

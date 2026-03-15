@@ -31,6 +31,12 @@ def policy_json_path(repo_root: Path) -> Path:
 
 
 @pytest.fixture
+def tool_definitions_json_path(repo_root: Path) -> Path:
+    """Path to examples/policies/tool_definitions.json."""
+    return repo_root / "examples" / "policies" / "tool_definitions.json"
+
+
+@pytest.fixture
 def minimal_policy() -> dict:
     """Minimal valid policy dict for tests."""
     return {

@@ -16,8 +16,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/example/agent-runtime-secure",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
+    packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -45,6 +44,7 @@ setup(
     entry_points={
         "console_scripts": [
             "agent-runtime=src.runtime.agent_runtime:main",
+            "agent-loop=src.runtime.agent_loop:main",
         ],
     },
 )
