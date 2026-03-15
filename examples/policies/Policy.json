@@ -36,10 +36,13 @@
     },
     {
       "name": "git.push",
+      "allowed": false
+    },
+    {
+      "name": "git",
       "allowed": true,
       "constraints": {
-        "prevent_force_push": true,
-        "require_approval": true
+        "require_approval": false
       }
     },
     {

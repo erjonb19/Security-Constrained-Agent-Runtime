@@ -1,0 +1,80 @@
+{
+    "tools": [
+      {
+        "name": "filesystem.read",
+        "description": "Read contents of a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Path to the file" }
+          },
+          "required": ["path"]
+        }
+      },
+      {
+        "name": "filesystem.write",
+        "description": "Write content to a file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Path to the file" },
+            "content": { "type": "string", "description": "Content to write" }
+          },
+          "required": ["path"]
+        }
+      },
+      {
+        "name": "git",
+        "description": "Run git commands (e.g. status, log, diff). Use path '.' for the current directory.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string", "description": "Repository path; use '.' for current directory" },
+            "command": { "type": "string", "description": "Git subcommand (e.g. status, log)", "default": "status" }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "git.commit",
+        "description": "Create a git commit with the given message.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "message": { "type": "string" },
+            "paths": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["message"]
+        }
+      },
+      {
+        "name": "git.push",
+        "description": "Push commits to the remote.",
+        "parameters": { "type": "object", "properties": {}, "required": [] }
+      },
+      {
+        "name": "http.fetch",
+        "description": "Fetch a URL (GET or POST).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "method": { "type": "string", "enum": ["GET", "POST"] }
+          },
+          "required": ["url"]
+        }
+      },
+      {
+        "name": "package_manager.query",
+        "description": "Query packages (list, search, info).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": { "type": "string", "enum": ["list", "search", "info"] },
+            "name": { "type": "string" }
+          },
+          "required": ["action"]
+        }
+      }
+    ]
+}
