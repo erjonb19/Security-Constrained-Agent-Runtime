@@ -136,22 +136,40 @@ class AgentRuntime:
         )
 
 
+ARG_POLICY = "policy"
+DEFAULT_POLICY = "configs/default_policy.yaml"
+
 def main() -> None:
     """CLI entry: load policy, create runtime, optionally run one execute_tool (demo)."""
     import argparse
     import json
-
     parser = argparse.ArgumentParser(description="Security-constrained agent runtime (plan §1.4)")
-    # parser.add_argument("--policy", type=str, default=None, help="Path to policy YAML/JSON (default: use built-in default)")
-    parser.add_argument("--capability", type=str, default=None, help="If set, run execute_tool(capability, params) as demo")
-    parser.add_argument("--params", type=str, default="{}", help='JSON params for --capability (default: {})')
+    parser.add_argument(
+        "--" + ARG_POLICY,
+        type=str,
+        default=DEFAULT_POLICY,
+        required=False,
+        help=f"Path to policy (default: {DEFAULT_POLICY})"
+    )
+    parser.add_argument(
+        "--capability",
+        type=str,
+        required=True,
+        help="REQUIRED: The tool capability to execute"
+    )
+    parser.add_argument(
+        "--params",
+        type=str,
+        default="{}",
+        required=False,
+        help="JSON params (default: {})"
+    )
     args = parser.parse_args()
-
     runtime = AgentRuntime()
     # policy_path = Path(args.policy) if args.policy else None
     # runtime.load_policy(policy_path)
-    runtime.load_policy(None)
-
+    policy_path = Path(args.policy) if args.policy else Path(DEFAULT_POLICY)
+    runtime.load_policy(policy_path)
     if args.capability:
         params = json.loads(args.params)
         result = runtime.execute_tool(args.capability, params)
