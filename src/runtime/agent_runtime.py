@@ -142,14 +142,15 @@ def main() -> None:
     import json
 
     parser = argparse.ArgumentParser(description="Security-constrained agent runtime (plan §1.4)")
-    parser.add_argument("--policy", type=str, default=None, help="Path to policy YAML/JSON (default: use built-in default)")
+    # parser.add_argument("--policy", type=str, default=None, help="Path to policy YAML/JSON (default: use built-in default)")
     parser.add_argument("--capability", type=str, default=None, help="If set, run execute_tool(capability, params) as demo")
     parser.add_argument("--params", type=str, default="{}", help='JSON params for --capability (default: {})')
     args = parser.parse_args()
 
     runtime = AgentRuntime()
-    policy_path = Path(args.policy) if args.policy else None
-    runtime.load_policy(policy_path)
+    # policy_path = Path(args.policy) if args.policy else None
+    # runtime.load_policy(policy_path)
+    runtime.load_policy(None)
 
     if args.capability:
         params = json.loads(args.params)
