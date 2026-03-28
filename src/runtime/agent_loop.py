@@ -218,7 +218,7 @@ def _unwrap_result_for_display(result: str) -> str:
 def main():
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument("--policy", default=None)
+    # p.add_argument("--policy", default=None)
     p.add_argument("--prompt", required=True)
     p.add_argument("--model", default="llama3.2")
     p.add_argument("--tools", default=None, help="Path to tool_definitions.json")
@@ -226,7 +226,8 @@ def main():
     args = p.parse_args()
     tools_path = tool_definitions_json_path(args)
     tools_for_llm = load_tool_definitions(tools_path) if tools_path and tools_path.exists() else []
-    runtime = create_runtime(args.policy)
+    # runtime = create_runtime(args.policy)
+    runtime = create_runtime(None)
     workspace = os.path.abspath(args.workspace) if args.workspace else None
     if workspace and not os.path.isdir(workspace):
         print(f"Error: workspace is not a directory: {args.workspace}")
@@ -248,6 +249,6 @@ def main():
 def tool_definitions_json_path(args):
     if getattr(args, "tools", None):
         return Path(args.tools)
-    if getattr(args, "policy", None):
-        return Path(args.policy).parent / "tool_definitions.json"
+    # if getattr(args, "policy", None):
+    #    return Path(args.policy).parent / "tool_definitions.json"
     return Path("examples/policies/tool_definitions.json")
