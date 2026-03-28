@@ -218,7 +218,7 @@ def _unwrap_result_for_display(result: str) -> str:
 def main():
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument("--policy", default="configs/default_policy.yaml", required=False)
+    p.add_argument("--policy", default="examples/policies/Policy.json", required=False)
     p.add_argument("--prompt", required=True)
     p.add_argument("--model", default="llama3.2")
     p.add_argument("--tools", default=None, help="Path to tool_definitions.json")
