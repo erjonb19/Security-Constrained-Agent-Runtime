@@ -17,6 +17,7 @@ from .capability import (
 )
 from .policy_engine import PolicyEngine, Decision
 from .agent_runtime import AgentRuntime, ExecuteResult
+from .audit_logger import AuditLogger, AuditEvent, AuditEventType, DecisionType
 
 __all__ = [
     "ALL_CAPABILITIES",
@@ -36,4 +37,8 @@ __all__ = [
     "Decision",
     "AgentRuntime",
     "ExecuteResult",
+    "AuditLogger",
+    "AuditEvent",
+    "AuditEventType",
+    "DecisionType",
 ]
