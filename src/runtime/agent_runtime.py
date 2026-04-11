@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .capability import resolve_capability
 from .policy_engine import Decision, PolicyEngine
+from .audit_logger import AuditLogger, DecisionType
 from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_tool as base_register_tool
 
 logger = logging.getLogger(__name__)
@@ -37,17 +39,17 @@ class AgentRuntime:
         self,
         policy_engine: Optional[PolicyEngine] = None,
         approval_callback: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
+        audit_logger: Optional[AuditLogger] = None,
     ) -> None:
         self._policy_engine = policy_engine or PolicyEngine()
         self._approval_callback = approval_callback
+        self.audit_logger = audit_logger
 
     def load_policy(self, path: Optional[str | Path] = None) -> None:
         """Load policy from file (YAML/JSON). Raises on validation error."""
         self._policy_engine.load_policy(path)
 
-    def evaluate_policy(
-        self, capability: str, parameters: Optional[Dict[str, Any]] = None
-    ) -> Decision:
+    def evaluate_policy(self, capability: str, parameters: Optional[Dict[str, Any]] = None) -> Decision:
         """Evaluate policy only (no tool lookup or execution). Use for pre-checks."""
         parameters = parameters or {}
         capability = resolve_capability(capability)
@@ -83,7 +85,26 @@ class AgentRuntime:
         """
         parameters = parameters or {}
         capability = resolve_capability(capability)
+
+        # Time policy evaluation
+        eval_start_time = datetime.now()
         decision = self._policy_engine.evaluate(capability, parameters)
+        evaluation_time_ms = (datetime.now() - eval_start_time).total_seconds() * 1000
+
+        # Log policy evaluation
+        if self.audit_logger:
+            decision_type = DecisionType.ALLOW if decision.allowed else DecisionType.DENY
+            if decision.needs_approval:
+                decision_type = DecisionType.REQUIRE_APPROVAL
+
+            self.audit_logger.log_policy_evaluation(
+                capability=capability,
+                decision=decision_type,
+                reason=decision.reason or "Policy evaluation",
+                parameters=parameters,
+                policy_rule=decision.policy_rule,
+                evaluation_time_ms=evaluation_time_ms,
+            )
 
         if not decision.allowed:
             explanation = self._policy_engine.get_explanation(decision)
@@ -95,7 +116,25 @@ class AgentRuntime:
             )
 
         if decision.needs_approval:
-            if not self.request_approval(capability, parameters):
+            # Log approval request
+            if self.audit_logger:
+                self.audit_logger.log_approval_requested(
+                    capability=capability, parameters=parameters, reason="Policy requires approval for this operation"
+                )
+
+            approved = self.request_approval(capability, parameters)
+
+            # Log approval decision
+            if self.audit_logger:
+                self.audit_logger.log_approval_decision(
+                    request_event_id="",  # Could be tracked if needed
+                    capability=capability,
+                    approved=approved,
+                    approver="approval_callback",
+                    comment="Callback decision",
+                )
+
+            if not approved:
                 explanation = "Approval required but not granted."
                 logger.info("execute_tool approval denied: %s", capability)
                 return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
@@ -104,13 +143,48 @@ class AgentRuntime:
         if tool is None:
             explanation = f"No tool registered for capability {capability!r}."
             logger.warning(explanation)
+
+            if self.audit_logger:
+                self.audit_logger.log_tool_execution(
+                    capability=capability, parameters=parameters, success=False, execution_time_ms=0, error=explanation
+                )
+
             return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
 
+        # Execute tool with timing
+        exec_start_time = datetime.now()
         try:
             tool_result = tool.execute(parameters)
+            execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
+
+            # Log successful execution
+            if self.audit_logger:
+                self.audit_logger.log_tool_execution(
+                    capability=capability,
+                    parameters=parameters,
+                    success=tool_result.success,
+                    execution_time_ms=execution_time_ms,
+                    result={
+                        "output_length": len(str(tool_result.output)) if tool_result.output else 0,
+                        "success": tool_result.success,
+                    },
+                    error=tool_result.error if not tool_result.success else None,
+                )
+
         except ToolError as e:
+            execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
             explanation = str(e)
             logger.exception("execute_tool ToolError: %s", capability)
+
+            if self.audit_logger:
+                self.audit_logger.log_tool_execution(
+                    capability=capability,
+                    parameters=parameters,
+                    success=False,
+                    execution_time_ms=execution_time_ms,
+                    error=explanation,
+                )
+
             return ExecuteResult(
                 allowed=True,
                 result=ToolResult(success=False, error=explanation),
@@ -118,8 +192,19 @@ class AgentRuntime:
                 decision=decision,
             )
         except Exception as e:
+            execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
             explanation = f"Tool execution failed: {e}"
             logger.exception("execute_tool failed: %s", capability)
+
+            if self.audit_logger:
+                self.audit_logger.log_tool_execution(
+                    capability=capability,
+                    parameters=parameters,
+                    success=False,
+                    execution_time_ms=execution_time_ms,
+                    error=explanation,
+                )
+
             return ExecuteResult(
                 allowed=True,
                 result=ToolResult(success=False, error=explanation),
@@ -142,9 +227,13 @@ def main() -> None:
     import json
 
     parser = argparse.ArgumentParser(description="Security-constrained agent runtime (plan §1.4)")
-    parser.add_argument("--policy", type=str, default=None, help="Path to policy YAML/JSON (default: use built-in default)")
-    parser.add_argument("--capability", type=str, default=None, help="If set, run execute_tool(capability, params) as demo")
-    parser.add_argument("--params", type=str, default="{}", help='JSON params for --capability (default: {})')
+    parser.add_argument(
+        "--policy", type=str, default=None, help="Path to policy YAML/JSON (default: use built-in default)"
+    )
+    parser.add_argument(
+        "--capability", type=str, default=None, help="If set, run execute_tool(capability, params) as demo"
+    )
+    parser.add_argument("--params", type=str, default="{}", help="JSON params for --capability (default: {})")
     args = parser.parse_args()
 
     runtime = AgentRuntime()
