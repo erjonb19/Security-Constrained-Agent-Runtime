@@ -12,6 +12,9 @@ from .capability import resolve_capability
 from .policy_engine import Decision, PolicyEngine
 from .audit_logger import AuditLogger, DecisionType
 from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_tool as base_register_tool
+# [TASK 2.3] Import parameter validator to enable pre-execution validation of tool parameters.
+# This replaces the TODO stub in parameter_validator.py (completed in task 2.1).
+from src.security.parameter_validator import validate as validate_parameters
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,8 @@ class AgentRuntime:
         Main entry (plan §1.4):
         1. Evaluate policy. If deny → return denial + explanation.
         2. If allow and needs_approval → request_approval; if not approved → deny.
-        3. If allow (and approved if required) → get tool, execute, return result.
+        3. [TASK 2.3] Parameter validation → if invalid → deny and log.
+        4. If allow (and approved if required) → get tool, execute, return result.
         """
         parameters = parameters or {}
         capability = resolve_capability(capability)
@@ -138,6 +142,34 @@ class AgentRuntime:
                 explanation = "Approval required but not granted."
                 logger.info("execute_tool approval denied: %s", capability)
                 return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
+
+        # [TASK 2.3] Parameter validation — runs after policy allows and after approval check,
+        # before tool lookup and execution. This enforces type, path traversal, enum, range,
+        # and shell-pattern constraints defined in the policy. On failure, deny and log so
+        # the audit trail captures exactly which constraint was violated.
+        # Old code went straight to: tool = get_tool(capability)
+        cap_config = self._policy_engine._find_capability(capability)
+        constraints = cap_config.get("constraints") or {} if cap_config else {}
+
+        validation = validate_parameters(capability, parameters, constraints)
+        if not validation.valid:
+            explanation = "Parameter validation failed: " + "; ".join(validation.errors)
+            logger.info("execute_tool validation denied: %s - %s", capability, explanation)
+
+            if self.audit_logger:
+                self.audit_logger.log_parameter_validation(
+                    capability=capability,
+                    parameters=parameters,
+                    validation_errors=validation.errors,
+                    constraint_violated=validation.constraint_violated,
+                )
+
+            return ExecuteResult(
+                allowed=False,
+                explanation=explanation,
+                decision=decision,
+            )
+        # [END TASK 2.3]
 
         tool = get_tool(capability)
         if tool is None:
