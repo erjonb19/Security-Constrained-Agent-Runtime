@@ -288,7 +288,7 @@ def main():
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--policy", default=None)
+    p.add_argument("--policy", default="examples/policies/Policy.json", required=False)
     p.add_argument("--prompt", required=True)
     p.add_argument("--model", default="llama3.2")
     p.add_argument("--tools", default=None, help="Path to tool_definitions.json")
@@ -358,6 +358,8 @@ def main():
 def tool_definitions_json_path(args):
     if getattr(args, "tools", None):
         return Path(args.tools)
+    # if getattr(args, "policy", None):
+    #    return Path(args.policy).parent / "tool_definitions.json"
     if getattr(args, "policy", None):
         return Path(args.policy).parent / "tool_definitions.json"
     return Path("examples/policies/tool_definitions.json")

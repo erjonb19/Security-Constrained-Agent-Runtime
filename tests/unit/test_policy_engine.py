@@ -27,6 +27,22 @@ class TestPolicyEngineLoadPolicy:
         assert "capabilities" in policy
 
 
+class TestPolicyEngineGetCapabilityConstraints:
+    """Tests for get_capability_constraints."""
+
+    def test_returns_constraints_for_known_capability(self, policy_yaml_path: Path) -> None:
+        engine = PolicyEngine()
+        engine.load_policy(policy_yaml_path)
+        c = engine.get_capability_constraints("filesystem.read")
+        assert isinstance(c, dict)
+        assert "paths" in c or "max_file_size" in c
+
+    def test_unknown_capability_empty_dict(self, policy_yaml_path: Path) -> None:
+        engine = PolicyEngine()
+        engine.load_policy(policy_yaml_path)
+        assert engine.get_capability_constraints("nonexistent.cap") == {}
+
+
 class TestPolicyEngineEvaluate:
     """Tests for evaluate(capability, parameters)."""
 

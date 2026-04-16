@@ -34,6 +34,7 @@ class Decision:
     reason: str
     needs_approval: bool = False
     details: Optional[dict[str, Any]] = None
+    policy_rule: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -81,6 +82,13 @@ class PolicyEngine:
             if c.get("name") == capability:
                 return c
         return None
+
+    def get_capability_constraints(self, capability: str) -> dict[str, Any]:
+        """Return the constraints dict for a named capability, or {} if not listed."""
+        cap = self._find_capability(capability)
+        if cap is None:
+            return {}
+        return dict(cap.get("constraints") or {})
 
     def evaluate(self, capability: str, parameters: Optional[dict[str, Any]] = None) -> Decision:
         """
