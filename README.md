@@ -28,6 +28,34 @@ This project provides a security layer for AI agent systems by implementing:
 pip install -e .
 ```
 
+## Run commands
+
+After installation, two CLI commands are registered (see `setup.py`). Run them from the repository root (or any directory) so paths like `examples/policies/...` resolve if you use relative paths.
+
+### `agent-runtime`
+
+Load a policy and optionally execute a single tool call through the runtime.
+
+```bash
+# Load policy (prints readiness when no capability is given)
+agent-runtime --policy examples/policies/Policy.yaml
+
+# Demo: one secured tool call (JSON for --params)
+agent-runtime --policy examples/policies/Policy.yaml --capability filesystem.read --params '{"path": "README.md"}'
+```
+
+Use `agent-runtime --help` for options (`--policy`, `--capability`, `--params`).
+
+### `agent-loop`
+
+Run the policy-aware loop with a local LLM (Ollama). Requires a working Ollama setup and the model you pass (default: `llama3.2`).
+
+```bash
+agent-loop --policy examples/policies/Policy.yaml --prompt "Summarize the project README."
+```
+
+Common options: `--model`, `--tools` (path to `tool_definitions.json`; defaults next to `--policy` or `examples/policies/tool_definitions.json`), `--workspace`, `--audit-log-dir` (default `logs/audit`), `--no-audit`. Use `agent-loop --help` for the full list.
+
 ## Quick Start
 
 ```python
@@ -36,7 +64,7 @@ from src.policies.parser import PolicyParser
 
 # Load a policy
 parser = PolicyParser()
-policy = parser.load("examples/policies/restrictive.yaml")
+policy = parser.load("examples/policies/Policy.yaml")
 
 # Create runtime
 runtime = AgentRuntime(policy)

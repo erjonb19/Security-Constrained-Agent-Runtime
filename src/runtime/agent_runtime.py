@@ -15,8 +15,11 @@ from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_t
 # [TASK 2.3] Import parameter validator to enable pre-execution validation of tool parameters.
 # This replaces the TODO stub in parameter_validator.py (completed in task 2.1).
 from src.security.parameter_validator import validate as validate_parameters
+from src.security.injection_detector import InjectionDetector
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_INJECTION_DETECTOR = object()
 
 
 @dataclass
@@ -43,10 +46,15 @@ class AgentRuntime:
         policy_engine: Optional[PolicyEngine] = None,
         approval_callback: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
         audit_logger: Optional[AuditLogger] = None,
+        injection_detector: Any = _DEFAULT_INJECTION_DETECTOR,
     ) -> None:
         self._policy_engine = policy_engine or PolicyEngine()
         self._approval_callback = approval_callback
         self.audit_logger = audit_logger
+        if injection_detector is _DEFAULT_INJECTION_DETECTOR:
+            self._injection_detector: Optional[InjectionDetector] = InjectionDetector()
+        else:
+            self._injection_detector = injection_detector
 
     def load_policy(self, path: Optional[str | Path] = None) -> None:
         """Load policy from file (YAML/JSON). Raises on validation error."""
@@ -170,6 +178,30 @@ class AgentRuntime:
                 decision=decision,
             )
         # [END TASK 2.3]
+
+        if self._injection_detector is not None:
+            inj = self._injection_detector.scan(capability, parameters)
+            if not inj.clean:
+                explanation = (
+                    f"Blocked: possible injection in tool parameters ({inj.injection_type}). {inj.reason}"
+                )
+                logger.info(
+                    "execute_tool injection blocked: %s at %s",
+                    capability,
+                    inj.parameter_path,
+                )
+                if self.audit_logger:
+                    self.audit_logger.log_injection_detected(
+                        capability=capability,
+                        parameters=parameters,
+                        injection_type=inj.injection_type,
+                        pattern_matched=inj.pattern_matched,
+                        context={
+                            "parameter_path": inj.parameter_path,
+                            "reason": inj.reason,
+                        },
+                    )
+                return ExecuteResult(allowed=False, explanation=explanation, decision=None)
 
         tool = get_tool(capability)
         if tool is None:
