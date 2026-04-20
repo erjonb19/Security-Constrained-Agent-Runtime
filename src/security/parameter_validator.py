@@ -2,21 +2,21 @@
 
 Defense in depth: structural checks on tool parameters before execution, in addition
 to policy engine evaluation. Used by :meth:`AgentRuntime.execute_tool`.
-"""Parameter validation (design §3.3, §4.1).
 
 validate(capability, parameters, constraints) -> ValidationResult
 
 Checks performed (in order):
-1. Type validation  – required params are present and the right type.
-2. Path traversal   – any path param must not escape via `..` sequences.
-3. Path normalization – resolved path is coerced in place.
-4. Enum validation  – if constraints list allowed values, param must be one.
-5. Range / length   – min/max for numbers; min_length/max_length for strings.
-6. Shell-flag / dangerous-pattern filtering – blocks rm -rf, --exec, etc.
+1. Type validation  - required params are present and the right type.
+2. Path traversal   - any path param must not escape via ``..`` sequences.
+3. Path normalization - resolved path is coerced in place.
+4. Enum validation  - if constraints list allowed values, param must be one.
+5. Range / length   - min/max for numbers; min_length/max_length for strings.
+6. Shell-flag / dangerous-pattern filtering - blocks rm -rf, --exec, etc.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -45,90 +45,6 @@ _PATHLIKE_KEYS: Set[str] = frozenset(
         "dst",
     }
 )
-
-
-def _has_path_traversal(path_str: str) -> bool:
-    if not path_str:
-        return False
-    if "\x00" in path_str:
-        return True
-    try:
-        if ".." in Path(path_str).parts:
-            return True
-    except (OSError, ValueError):
-        pass
-    return ".." in path_str.replace("\\", "/").split("/")
-
-
-def _validate_pathlike(key: str, value: str, errors: List[str]) -> Optional[str]:
-    if _has_path_traversal(value):
-        errors.append(f"Path traversal or invalid path in {key!r}")
-        return "paths"
-    return None
-
-
-def _walk_strings(obj: Any, key_hint: str, errors: List[str], violated: List[Optional[str]]) -> None:
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            sk = str(k)
-            if isinstance(v, str):
-                if sk in _PATHLIKE_KEYS or key_hint in _PATHLIKE_KEYS:
-                    c = _validate_pathlike(sk, v, errors)
-                    if c:
-                        violated.append(c)
-                elif "\x00" in v:
-                    errors.append(f"Null byte in parameter {sk!r}")
-                    violated.append("sanitization")
-            else:
-                _walk_strings(v, sk, errors, violated)
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            _walk_strings(v, f"{key_hint}[{i}]", errors, violated)
-
-
-def validate(capability: str, parameters: Dict[str, Any], constraints: Dict[str, Any]) -> ValidationResult:
-    """
-    Validate ``parameters`` for ``capability`` using policy ``constraints``.
-
-    Checks include path traversal on path-like keys, ``operations`` allow-list for
-    package_manager capabilities, and HTTPS enforcement for ``http.fetch`` when policy
-    denies ``http://`` endpoints.
-    """
-    errors: List[str] = []
-    violated: List[Optional[str]] = []
-    params = parameters or {}
-
-    for key, val in params.items():
-        if isinstance(val, str) and key in _PATHLIKE_KEYS:
-            c = _validate_pathlike(key, val, errors)
-            if c:
-                violated.append(c)
-        elif isinstance(val, (dict, list)):
-            _walk_strings(val, str(key), errors, violated)
-
-    ops = constraints.get("operations")
-    if ops is not None and isinstance(ops, (list, tuple)) and capability.startswith("package_manager."):
-        action = params.get("action")
-        if action is not None:
-            allowed = {str(o).strip().lower() for o in ops}
-            if str(action).strip().lower() not in allowed:
-                errors.append(f"action {action!r} not in allowed operations {list(ops)}")
-                violated.append("operations")
-
-    if capability == "http.fetch" or capability.startswith("http."):
-        url = params.get("url") or params.get("endpoint")
-        if isinstance(url, str) and url.strip():
-            ep = constraints.get("endpoints") or {}
-            deny = ep.get("deny") or []
-            deny_http = any("http://**" in str(d) or str(d).startswith("http://") for d in deny)
-            if deny_http and url.strip().lower().startswith("http://"):
-                errors.append("URL must use HTTPS (http:// not permitted by policy)")
-                violated.append("endpoints")
-
-    first = next((v for v in violated if v is not None), None)
-    return ValidationResult(valid=len(errors) == 0, errors=errors, constraint_violated=first)
-    def __bool__(self) -> bool:
-        return self.valid
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +85,7 @@ def validate(
         constraints: Constraint block from the policy capability entry (may be None).
 
     Returns:
-        :class:`ValidationResult` – ``valid=True`` when all checks pass.
+        :class:`ValidationResult` - ``valid=True`` when all checks pass.
     """
     constraints = constraints or {}
     errors: list[str] = []
@@ -205,6 +121,13 @@ def validate(
         if shell_errors:
             errors.extend(shell_errors)
             constraint_violated = constraint_violated or shell_constraint
+
+    # 7. HTTP endpoint constraints (HTTPS enforcement)
+    if capability == "http.fetch" or capability.startswith("http."):
+        http_errors, http_constraint = _check_http_endpoints(parameters, constraints)
+        if http_errors:
+            errors.extend(http_errors)
+            constraint_violated = constraint_violated or http_constraint
 
     return ValidationResult(
         valid=len(errors) == 0,
@@ -275,33 +198,30 @@ def _check_paths(
     parameters: Dict[str, Any],
 ) -> tuple[list[str], Optional[str]]:
     errors: list[str] = []
-
-    for key in _PATH_PARAMS:
-        if key not in parameters:
-            continue
-        value = parameters[key]
-        if not isinstance(value, str):
-            continue
-
-        if "\x00" in value:
-            errors.append(f"Parameter '{key}' contains a null byte.")
-            continue
-
-        if re.search(r"\.\.[/\\]", value) or value.endswith(".."):
-            errors.append(
-                f"Parameter '{key}' contains a path-traversal sequence: {value!r}."
-            )
-            continue
-
-        # Normalize in place so downstream tools see the resolved path
-        try:
-            parameters[key] = str(Path(value).resolve())
-        except Exception:
-            pass
-
+    _check_paths_recursive(parameters, errors, depth=0)
     if errors:
-        return errors, "path_traversal"
+        return errors, "paths"
     return [], None
+
+
+def _check_paths_recursive(obj: Any, errors: list[str], depth: int) -> None:
+    """Recursively walk nested dicts/lists to find path-like keys at any depth."""
+    if depth > 16:
+        return
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key in _PATH_PARAMS and isinstance(value, str):
+                if "\x00" in value:
+                    errors.append(f"Parameter '{key}' contains a null byte.")
+                elif re.search(r"\.\.[/\\]", value) or value.endswith(".."):
+                    errors.append(
+                        f"Parameter '{key}' contains a path-traversal sequence: {value!r}."
+                    )
+            elif isinstance(value, (dict, list)):
+                _check_paths_recursive(value, errors, depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            _check_paths_recursive(item, errors, depth + 1)
 
 
 def _check_enums(
@@ -310,8 +230,15 @@ def _check_enums(
 ) -> tuple[list[str], Optional[str]]:
     errors: list[str] = []
 
-    # Top-level list constraints: e.g. operations: ["list", "search", "info"]
+    ops = constraints.get("operations")
+    if ops is not None and isinstance(ops, (list, tuple)):
+        action = parameters.get("action")
+        if action is not None and str(action).strip().lower() not in {str(o).strip().lower() for o in ops}:
+            errors.append(f"Parameter 'action' value {action!r} not in allowed operations: {list(ops)}.")
+
     for key, allowed_values in constraints.items():
+        if key == "operations":
+            continue
         if not isinstance(allowed_values, list) or key not in parameters:
             continue
         value = parameters[key]
@@ -322,7 +249,6 @@ def _check_enums(
                     f"Parameter '{key}' value {v!r} is not in the allowed set: {allowed_values}."
                 )
 
-    # Nested param_specs with 'enum'
     for param_name, spec in constraints.get("parameters", {}).items():
         if not isinstance(spec, dict):
             continue
@@ -338,7 +264,8 @@ def _check_enums(
                 )
 
     if errors:
-        return errors, "enum_validation"
+        constraint = "operations" if ops is not None and any("operations" in e or "action" in e for e in errors) else "enum_validation"
+        return errors, constraint
     return [], None
 
 
@@ -373,6 +300,30 @@ def _check_ranges(
 
     if errors:
         return errors, "range_validation"
+    return [], None
+
+
+def _check_http_endpoints(
+    parameters: Dict[str, Any],
+    constraints: Dict[str, Any],
+) -> tuple[list[str], Optional[str]]:
+    """Enforce endpoint allow/deny lists, including HTTPS-only policy."""
+    errors: list[str] = []
+    url = parameters.get("url") or parameters.get("endpoint")
+    if not isinstance(url, str) or not url.strip():
+        return [], None
+
+    ep = constraints.get("endpoints") or {}
+    deny = ep.get("deny") or []
+    deny_http = any(
+        "http://**" in str(d) or str(d).rstrip("/").lower() == "http://"
+        or str(d).startswith("http://") and not str(d).startswith("https://")
+        for d in deny
+    )
+    if deny_http and url.strip().lower().startswith("http://"):
+        errors.append("URL must use HTTPS (http:// not permitted by policy).")
+    if errors:
+        return errors, "endpoints"
     return [], None
 
 
