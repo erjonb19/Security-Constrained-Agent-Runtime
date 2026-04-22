@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .capability import resolve_capability
+from .capability import is_high_risk
 from .policy_engine import Decision, PolicyEngine
 from .audit_logger import AuditLogger, DecisionType
 from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_tool as base_register_tool
@@ -16,6 +18,7 @@ from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_t
 # This replaces the TODO stub in parameter_validator.py (completed in task 2.1).
 from src.security.parameter_validator import validate as validate_parameters
 from src.security.injection_detector import InjectionDetector
+from src.runtime.sandbox import SandboxConfig, docker_available, run_tool_in_docker
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +218,48 @@ class AgentRuntime:
 
             return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
 
+        # Optional: Docker sandbox for high-risk capabilities (Phase 5).
+        use_docker_sandbox = os.environ.get("AGENT_RUNTIME_USE_DOCKER_SANDBOX", "").strip() == "1"
+        if use_docker_sandbox and is_high_risk(capability):
+            if not docker_available():
+                explanation = "Sandbox required but Docker is unavailable."
+                if self.audit_logger:
+                    self.audit_logger.log_sandbox_execution(
+                        capability=capability,
+                        parameters=parameters,
+                        success=False,
+                        execution_time_ms=0,
+                        sandbox={"type": "docker", "available": False},
+                        error=explanation,
+                    )
+                return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
+
+            # Allow network only for http.fetch; keep others isolated.
+            network = "bridge" if capability == "http.fetch" else "none"
+            cfg = SandboxConfig(network=network)
+            exec_start_time = datetime.now()
+            tool_result = run_tool_in_docker(capability, parameters, cfg)
+            execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
+            if self.audit_logger:
+                self.audit_logger.log_sandbox_execution(
+                    capability=capability,
+                    parameters=parameters,
+                    success=tool_result.success,
+                    execution_time_ms=execution_time_ms,
+                    sandbox={
+                        "type": "docker",
+                        "image": cfg.image,
+                        "network": cfg.network,
+                        "read_only": cfg.read_only,
+                        "memory": cfg.memory,
+                        "cpus": cfg.cpus,
+                    },
+                    result={"output_length": len(str(tool_result.output)) if tool_result.output else 0},
+                    error=tool_result.error if not tool_result.success else None,
+                )
+            explanation = self._policy_engine.get_explanation(decision)
+            return ExecuteResult(allowed=True, result=tool_result, explanation=explanation, decision=decision)
+
         # Execute tool with timing
         exec_start_time = datetime.now()
         try:
@@ -292,6 +337,7 @@ def main() -> None:
     """CLI entry: load policy, create runtime, optionally run one execute_tool (demo)."""
     import argparse
     import json
+    from src.runtime.bootstrap import register_default_tools
     parser = argparse.ArgumentParser(description="Security-constrained agent runtime (plan §1.4)")
     parser.add_argument(
         "--" + ARG_POLICY,
@@ -313,12 +359,32 @@ def main() -> None:
         required=False,
         help="JSON params (default: {})"
     )
+    parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="Auto-approve capabilities that require approval (demo only).",
+    )
+    parser.add_argument(
+        "--prompt-approval",
+        action="store_true",
+        help="Prompt for approval when required (interactive).",
+    )
     args = parser.parse_args()
-    runtime = AgentRuntime()
+    approval_cb = None
+    if args.approve:
+        approval_cb = lambda capability, params: True
+    elif args.prompt_approval:
+        def _prompt_cb(capability, params):
+            ans = input(f"Approval required for {capability}. Approve? [y/N] ").strip().lower()
+            return ans in ("y", "yes")
+        approval_cb = _prompt_cb
+
+    runtime = AgentRuntime(approval_callback=approval_cb)
     # policy_path = Path(args.policy) if args.policy else None
     # runtime.load_policy(policy_path)
     policy_path = Path(args.policy) if args.policy else Path(DEFAULT_POLICY)
     runtime.load_policy(policy_path)
+    register_default_tools(runtime)
     if args.capability:
         params = json.loads(args.params)
         result = runtime.execute_tool(args.capability, params)

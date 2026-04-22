@@ -401,6 +401,47 @@ class AuditLogger:
         )
         
         return self._log_event(event)
+
+    def log_sandbox_execution(
+        self,
+        capability: str,
+        parameters: Dict[str, Any],
+        success: bool,
+        execution_time_ms: float,
+        sandbox: Dict[str, Any],
+        result: Optional[Any] = None,
+        error: Optional[str] = None,
+    ) -> str:
+        """
+        Log a sandboxed execution event (Docker sandbox, etc.).
+
+        This complements TOOL_EXECUTION by recording the sandbox configuration
+        and the fact that execution occurred inside an isolation boundary.
+        """
+        execution_result = {
+            "success": success,
+            "result": result,
+            "error": error,
+        }
+        performance_metrics = {
+            "execution_time_ms": execution_time_ms,
+        }
+        decision = DecisionType.ALLOW if success else DecisionType.DENY
+        reason = "Sandbox execution completed" if success else f"Sandbox execution failed: {error}"
+
+        event = AuditEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type=AuditEventType.SANDBOX_EXECUTION,
+            agent_id=self.agent_id,
+            capability=capability,
+            decision=decision,
+            reason=reason,
+            parameters=parameters,
+            execution_result=execution_result,
+            performance_metrics=performance_metrics,
+            context={"sandbox": sandbox},
+        )
+        return self._log_event(event)
     
     def _log_event(self, event: AuditEvent) -> str:
         """
