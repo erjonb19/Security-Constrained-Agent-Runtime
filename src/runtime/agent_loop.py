@@ -8,16 +8,13 @@ from datetime import datetime
 
 from src.runtime import AgentRuntime
 from src.runtime.audit_logger import AuditLogger, DecisionType
-from src.tools.git_tool import GitBaseTool
+from src.runtime.bootstrap import register_default_tools
 
 
 def create_runtime(policy_path: str | Path | None, audit_logger: AuditLogger | None = None) -> AgentRuntime:
     runtime = AgentRuntime(audit_logger=audit_logger)
     runtime.load_policy(policy_path)
-    try:
-        runtime.register_tool(GitBaseTool())
-    except ValueError:
-        pass  # already registered (e.g. tests)
+    register_default_tools(runtime)
     return runtime
 
 

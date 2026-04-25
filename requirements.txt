@@ -7,5 +7,6 @@ ollama>=0.6.1
 pathspec>=0.11.0
 
 # Optional: For advanced features
-# requests>=2.31.0  # For HTTP fetch tool
+# requests is used by http.fetch and PyPI queries
+requests>=2.31.0
 # gitpython>=3.1.0  # For git operations
