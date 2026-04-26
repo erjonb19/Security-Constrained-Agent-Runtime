@@ -5,6 +5,7 @@ Unit tests for src.runtime.agent_runtime (plan §1.4, §4.1).
 import pytest
 from pathlib import Path
 from typing import Any, Dict
+from unittest.mock import patch
 
 from src.runtime.agent_runtime import AgentRuntime, ExecuteResult
 from src.runtime.policy_engine import Decision
@@ -24,6 +25,50 @@ class _StubTool(BaseTool):
 
     def execute(self, params: Dict[str, Any]) -> ToolResult:
         return ToolResult(success=True, output="stub output")
+
+
+class _SensitiveStubTool(BaseTool):
+    """Tool that returns secret-bearing output for redaction tests."""
+
+    @property
+    def name(self) -> str:
+        return "package_manager.query"
+
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            success=True,
+            output={
+                "authorization": "Bearer SUPER-SECRET-TOKEN",
+                "path": r"C:\Users\alice\.ssh\id_rsa",
+                "safe": "value",
+            },
+        )
+
+
+class _AuditSpy:
+    """Audit logger spy for verifying runtime logging payloads."""
+
+    def __init__(self) -> None:
+        self.policy_events: list[dict[str, Any]] = []
+        self.exec_events: list[dict[str, Any]] = []
+        self.approval_requests: list[dict[str, Any]] = []
+        self.approval_decisions: list[dict[str, Any]] = []
+
+    def log_policy_evaluation(self, **kwargs: Any) -> str:
+        self.policy_events.append(kwargs)
+        return "policy_event"
+
+    def log_tool_execution(self, **kwargs: Any) -> str:
+        self.exec_events.append(kwargs)
+        return "exec_event"
+
+    def log_approval_requested(self, **kwargs: Any) -> str:
+        self.approval_requests.append(kwargs)
+        return "approval_req"
+
+    def log_approval_decision(self, **kwargs: Any) -> str:
+        self.approval_decisions.append(kwargs)
+        return "approval_decision"
 
 
 class TestAgentRuntimeLoadPolicy:
@@ -85,6 +130,7 @@ class TestAgentRuntimeExecuteTool:
         result = runtime.execute_tool("shell.execute", {})
         assert result.allowed is False
         assert result.explanation
+        assert "Operation denied:" in result.explanation
         assert result.result is None
 
     def test_execute_tool_no_tool_registered(self, policy_yaml_path: Path) -> None:

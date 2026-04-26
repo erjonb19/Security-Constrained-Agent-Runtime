@@ -22,6 +22,15 @@ from src.runtime.agent_loop import (
 from src.runtime import AgentRuntime
 
 
+class _AuditSpy:
+    def __init__(self) -> None:
+        self.policy_events: list[dict] = []
+
+    def log_policy_evaluation(self, **kwargs):
+        self.policy_events.append(kwargs)
+        return "event-id"
+
+
 class TestLoadToolDefinitions:
     """Tests for load_tool_definitions."""
 
@@ -110,6 +119,15 @@ class TestCheckPromptAgainstPolicy:
         )
         assert allowed is False
         assert "Prompt denied" in msg or "denied" in msg.lower()
+
+    def test_prompt_precheck_logs_policy_rule_without_attr_error(self, policy_yaml_path: Path) -> None:
+        """Audit logging path can read decision.policy_rule safely."""
+        audit = _AuditSpy()
+        runtime = create_runtime(policy_yaml_path, audit_logger=audit)
+        allowed, _msg = check_prompt_against_policy(runtime, "read the file C:\\Windows\\System32\\config")
+        assert allowed is False
+        assert audit.policy_events
+        assert "policy_rule" in audit.policy_events[0]
 
 
 class TestParseToolCallFromContent:

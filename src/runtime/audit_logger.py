@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional, List
 from threading import Lock
 import hashlib
 
+from src.utils.redaction import redact_data, redact_text
+
 
 class AuditEventType(Enum):
     """Types of audit events."""
@@ -57,34 +59,14 @@ class AuditEvent:
         # Convert enums to strings
         data['event_type'] = self.event_type.value
         data['decision'] = self.decision.value
-        # Redact sensitive parameters
-        if self.parameters:
-            data['parameters'] = self._redact_sensitive(self.parameters)
-        if self.execution_result:
-            data['execution_result'] = self._redact_sensitive(self.execution_result)
+        data['reason'] = redact_text(data.get('reason', ''))
+        if self.parameters is not None:
+            data['parameters'] = redact_data(self.parameters)
+        if self.execution_result is not None:
+            data['execution_result'] = redact_data(self.execution_result)
+        if self.context is not None:
+            data['context'] = redact_data(self.context)
         return data
-    
-    def _redact_sensitive(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Redact sensitive information from logged data."""
-        sensitive_keys = {
-            'password', 'token', 'key', 'secret', 'credential',
-            'api_key', 'auth', 'authorization', 'bearer'
-        }
-        
-        redacted = {}
-        for key, value in data.items():
-            key_lower = key.lower()
-            # Check if key contains sensitive terms
-            if any(term in key_lower for term in sensitive_keys):
-                redacted[key] = "[REDACTED]"
-            elif isinstance(value, dict):
-                redacted[key] = self._redact_sensitive(value)
-            elif isinstance(value, str) and len(value) > 100:
-                # Truncate very long strings (potential data exfiltration)
-                redacted[key] = value[:100] + "... [TRUNCATED]"
-            else:
-                redacted[key] = value
-        return redacted
 
 
 class AuditLogger:

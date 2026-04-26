@@ -109,16 +109,19 @@ class PolicyEngine:
                     allowed=True,
                     reason="Capability not in policy; default_policy is allow.",
                     needs_approval=False,
+                    policy_rule="default_policy",
                 )
             return Decision(
                 allowed=False,
                 reason=f"Capability {capability!r} not in policy; default_policy is deny.",
+                policy_rule="default_policy",
             )
 
         if not cap_config.get("allowed", False):
             return Decision(
                 allowed=False,
                 reason=f"Capability {capability!r} is explicitly denied by policy.",
+                policy_rule=capability,
             )
 
         constraints = cap_config.get("constraints") or {}
@@ -139,6 +142,7 @@ class PolicyEngine:
                         allowed=False,
                         reason=f"Path {path_val!r} is not allowed by policy (deny or not in allow list).",
                         details={"path": path_resolved, "capability": capability},
+                        policy_rule=capability,
                     )
 
         # Endpoint constraints (for http.fetch etc.)
@@ -153,6 +157,7 @@ class PolicyEngine:
                         allowed=False,
                         reason=f"Endpoint {url!r} is not allowed by policy (deny or not in allow list).",
                         details={"url": url, "capability": capability},
+                        policy_rule=capability,
                     )
 
         # Resource limits: pass through in details for runtime/tool to enforce
@@ -169,6 +174,7 @@ class PolicyEngine:
             reason="Allowed by policy.",
             needs_approval=needs_approval,
             details=details if details else None,
+            policy_rule=capability,
         )
 
     def get_explanation(self, decision: Decision) -> str:
