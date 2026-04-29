@@ -1,4 +1,4 @@
-"""Main runtime orchestrator for agent security (plan §1.4)."""
+"""Main runtime orchestrator for agent security."""
 
 from __future__ import annotations
 
@@ -9,6 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from src.tools.base import BaseTool, ToolError, ToolResult, get_tool, register_tool as base_register_tool
+from src.utils.explainer import get_explanation as build_explanation
+from src.utils.redaction import redact_data, redact_text
+
+from .audit_logger import AuditLogger, DecisionType
 from .capability import resolve_capability
 from .capability import is_high_risk
 from .policy_engine import Decision, PolicyEngine
@@ -39,9 +44,9 @@ class AgentRuntime:
     """
     Orchestrator: evaluate policy, optional approval, execute tool, return result.
 
-    - execute_tool(capability, parameters): main entry (plan §1.4).
+    - execute_tool(capability, parameters): main entry.
     - register_tool(tool): delegate to tools.base.register_tool.
-    - request_approval(capability, parameters): sync callback or default deny when needs_approval.
+    - request_approval(capability, parameters): sync callback or default deny.
     """
 
     def __init__(
@@ -69,9 +74,16 @@ class AgentRuntime:
         capability = resolve_capability(capability)
         return self._policy_engine.evaluate(capability, parameters)
 
-    def get_explanation(self, decision: Decision) -> str:
-        """Return human-readable explanation for a policy decision."""
-        return self._policy_engine.get_explanation(decision)
+    def get_explanation(
+        self,
+        decision: Decision,
+        capability: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Return human-readable explanation for a decision."""
+        if capability is None:
+            return self._policy_engine.get_explanation(decision)
+        return build_explanation(decision, capability, parameters or {}, self._policy_engine.get_policy())
 
     def register_tool(self, tool: BaseTool) -> None:
         """Register a tool implementation (capability name = tool.name)."""
@@ -92,57 +104,51 @@ class AgentRuntime:
         parameters: Optional[Dict[str, Any]] = None,
     ) -> ExecuteResult:
         """
-        Main entry (plan §1.4):
-        1. Evaluate policy. If deny → return denial + explanation.
-        2. If allow and needs_approval → request_approval; if not approved → deny.
+        Main entry:
+        1. Evaluate policy. If deny, return denial + explanation.
+        2. If allow and needs_approval, request approval; if rejected, deny.
         3. [TASK 2.3] Parameter validation → if invalid → deny and log.
-        4. If allow (and approved if required) → get tool, execute, return result.
+        4. If allow, execute tool with redacted logging/outputs.
         """
         parameters = parameters or {}
         capability = resolve_capability(capability)
+        redacted_parameters = redact_data(parameters)
 
-        # Time policy evaluation
         eval_start_time = datetime.now()
         decision = self._policy_engine.evaluate(capability, parameters)
         evaluation_time_ms = (datetime.now() - eval_start_time).total_seconds() * 1000
 
-        # Log policy evaluation
         if self.audit_logger:
             decision_type = DecisionType.ALLOW if decision.allowed else DecisionType.DENY
             if decision.needs_approval:
                 decision_type = DecisionType.REQUIRE_APPROVAL
-
             self.audit_logger.log_policy_evaluation(
                 capability=capability,
                 decision=decision_type,
                 reason=decision.reason or "Policy evaluation",
-                parameters=parameters,
+                parameters=redacted_parameters,
                 policy_rule=decision.policy_rule,
                 evaluation_time_ms=evaluation_time_ms,
             )
 
         if not decision.allowed:
-            explanation = self._policy_engine.get_explanation(decision)
+            explanation = self.get_explanation(decision, capability, parameters)
             logger.info("execute_tool denied: %s - %s", capability, explanation)
-            return ExecuteResult(
-                allowed=False,
-                explanation=explanation,
-                decision=decision,
-            )
+            return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
 
         if decision.needs_approval:
-            # Log approval request
             if self.audit_logger:
                 self.audit_logger.log_approval_requested(
-                    capability=capability, parameters=parameters, reason="Policy requires approval for this operation"
+                    capability=capability,
+                    parameters=redacted_parameters,
+                    reason="Policy requires approval for this operation",
                 )
 
             approved = self.request_approval(capability, parameters)
 
-            # Log approval decision
             if self.audit_logger:
                 self.audit_logger.log_approval_decision(
-                    request_event_id="",  # Could be tracked if needed
+                    request_event_id="",
                     capability=capability,
                     approved=approved,
                     approver="approval_callback",
@@ -150,7 +156,12 @@ class AgentRuntime:
                 )
 
             if not approved:
-                explanation = "Approval required but not granted."
+                denial_decision = Decision(
+                    allowed=False,
+                    reason="Approval required but not granted.",
+                    policy_rule=decision.policy_rule,
+                )
+                explanation = self.get_explanation(denial_decision, capability, parameters)
                 logger.info("execute_tool approval denied: %s", capability)
                 return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
 
@@ -208,15 +219,24 @@ class AgentRuntime:
 
         tool = get_tool(capability)
         if tool is None:
-            explanation = f"No tool registered for capability {capability!r}."
+            denial_decision = Decision(
+                allowed=False,
+                reason=f"No tool registered for capability {capability!r}.",
+                policy_rule=decision.policy_rule,
+            )
+            explanation = self.get_explanation(denial_decision, capability, parameters)
             logger.warning(explanation)
 
             if self.audit_logger:
                 self.audit_logger.log_tool_execution(
-                    capability=capability, parameters=parameters, success=False, execution_time_ms=0, error=explanation
+                    capability=capability,
+                    parameters=redacted_parameters,
+                    success=False,
+                    execution_time_ms=0,
+                    error=redact_text(explanation),
                 )
 
-            return ExecuteResult(allowed=False, explanation=explanation, decision=decision)
+            return ExecuteResult(allowed=False, explanation=explanation, decision=denial_decision)
 
         # Optional: Docker sandbox for high-risk capabilities (Phase 5).
         use_docker_sandbox = os.environ.get("AGENT_RUNTIME_USE_DOCKER_SANDBOX", "").strip() == "1"
@@ -263,62 +283,90 @@ class AgentRuntime:
         # Execute tool with timing
         exec_start_time = datetime.now()
         try:
-            tool_result = tool.execute(parameters)
+            raw_result = tool.execute(parameters)
             execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
+            redacted_output = redact_data(raw_result.output)
+            redacted_error = redact_text(raw_result.error) if raw_result.error else None
+            tool_result = ToolResult(success=raw_result.success, output=redacted_output, error=redacted_error)
 
-            # Log successful execution
             if self.audit_logger:
                 self.audit_logger.log_tool_execution(
                     capability=capability,
-                    parameters=parameters,
+                    parameters=redacted_parameters,
                     success=tool_result.success,
                     execution_time_ms=execution_time_ms,
                     result={
-                        "output_length": len(str(tool_result.output)) if tool_result.output else 0,
+                        "output": redacted_output,
+                        "output_length": len(str(redacted_output)) if redacted_output is not None else 0,
                         "success": tool_result.success,
                     },
-                    error=tool_result.error if not tool_result.success else None,
+                    error=redacted_error if not tool_result.success else None,
                 )
 
-        except ToolError as e:
+            if not tool_result.success:
+                denial_decision = Decision(
+                    allowed=False,
+                    reason=f"Tool execution failed: {redacted_error or 'unknown error'}",
+                    policy_rule=decision.policy_rule,
+                )
+                explanation = self.get_explanation(denial_decision, capability, parameters)
+                return ExecuteResult(
+                    allowed=False,
+                    result=tool_result,
+                    explanation=explanation,
+                    decision=denial_decision,
+                )
+        except ToolError as exc:
             execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
-            explanation = str(e)
+            redacted_error = redact_text(str(exc))
+            denial_decision = Decision(
+                allowed=False,
+                reason=f"Tool execution failed: {redacted_error}",
+                policy_rule=decision.policy_rule,
+            )
+            explanation = self.get_explanation(denial_decision, capability, parameters)
             logger.exception("execute_tool ToolError: %s", capability)
 
             if self.audit_logger:
                 self.audit_logger.log_tool_execution(
                     capability=capability,
-                    parameters=parameters,
+                    parameters=redacted_parameters,
                     success=False,
                     execution_time_ms=execution_time_ms,
-                    error=explanation,
+                    error=redacted_error,
                 )
 
             return ExecuteResult(
-                allowed=True,
-                result=ToolResult(success=False, error=explanation),
+                allowed=False,
+                result=ToolResult(success=False, error=redacted_error),
                 explanation=explanation,
-                decision=decision,
+                decision=denial_decision,
             )
-        except Exception as e:
+        except Exception as exc:
             execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
-            explanation = f"Tool execution failed: {e}"
+            redacted_error = redact_text(str(exc))
+            denial_decision = Decision(
+                allowed=False,
+                reason=f"Tool execution failed: {redacted_error}",
+                policy_rule=decision.policy_rule,
+            )
+            explanation = self.get_explanation(denial_decision, capability, parameters)
             logger.exception("execute_tool failed: %s", capability)
 
             if self.audit_logger:
                 self.audit_logger.log_tool_execution(
                     capability=capability,
-                    parameters=parameters,
+                    parameters=redacted_parameters,
                     success=False,
                     execution_time_ms=execution_time_ms,
-                    error=explanation,
+                    error=redacted_error,
                 )
 
             return ExecuteResult(
-                allowed=True,
-                result=ToolResult(success=False, error=explanation),
+                allowed=False,
+                result=ToolResult(success=False, error=redacted_error),
                 explanation=explanation,
-                decision=decision,
+                decision=denial_decision,
             )
 
         explanation = self._policy_engine.get_explanation(decision)

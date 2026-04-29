@@ -58,12 +58,14 @@ class TestPolicyEngineEvaluate:
         d = engine.evaluate("unknown.cap", {})
         assert d.allowed is False
         assert "not in policy" in d.reason or "deny" in d.reason.lower()
+        assert d.policy_rule == "default_policy"
 
     def test_explicitly_denied_capability(self, engine: PolicyEngine) -> None:
         """Capability with allowed: false returns denied."""
         d = engine.evaluate("shell.execute", {})
         assert d.allowed is False
         assert "denied" in d.reason.lower()
+        assert d.policy_rule == "shell.execute"
 
     def test_decision_has_allowed_reason(self, engine: PolicyEngine) -> None:
         """Decision has allowed, reason, needs_approval."""
@@ -78,6 +80,7 @@ class TestPolicyEngineEvaluate:
         d = engine.evaluate("http.fetch", {"url": "https://api.github.com/users/x"})
         assert d.allowed is True
         assert "Allowed" in d.reason or d.reason
+        assert d.policy_rule == "http.fetch"
 
     def test_http_fetch_denied_for_http_url(self, engine: PolicyEngine) -> None:
         """http.fetch with http:// URL can be denied by policy (deny list)."""
@@ -89,6 +92,7 @@ class TestPolicyEngineEvaluate:
         """package_manager.query is allowed by policy (no path/url)."""
         d = engine.evaluate("package_manager.query", {})
         assert d.allowed is True
+        assert d.policy_rule == "package_manager.query"
 
     def test_needs_approval_set_when_required(self, engine: PolicyEngine) -> None:
         """When policy has require_approval: true, decision has needs_approval True."""
@@ -132,3 +136,8 @@ class TestDecision:
         """details can be None."""
         d = Decision(allowed=True, reason="ok", needs_approval=False, details=None)
         assert d.details is None
+
+    def test_decision_policy_rule_optional(self) -> None:
+        """policy_rule defaults to None when not provided."""
+        d = Decision(allowed=True, reason="ok")
+        assert d.policy_rule is None
