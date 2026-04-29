@@ -22,6 +22,20 @@ SANDBOX_IMAGE = os.environ.get("AGENT_RUNTIME_DOCKER_IMAGE", "agent-runtime-sand
 SANDBOX_DOCKERFILE = "docker/Dockerfile.sandbox"
 
 
+def _decode(buf: Any) -> str:
+    """Decode subprocess stdout/stderr defensively.
+
+    Docker output may include bytes that the host codepage (e.g. cp1252 on
+    Windows) cannot decode. We capture in bytes mode and force UTF-8 with
+    replacement so the runtime never crashes on non-UTF8 output.
+    """
+    if buf is None:
+        return ""
+    if isinstance(buf, bytes):
+        return buf.decode("utf-8", errors="replace")
+    return str(buf)
+
+
 @dataclass
 class SandboxConfig:
     image: str = SANDBOX_IMAGE
@@ -42,7 +56,7 @@ def docker_available() -> bool:
         proc = subprocess.run(
             ["docker", "version"],
             capture_output=True,
-            text=True,
+            text=False,
             timeout=5,
         )
         return proc.returncode == 0
@@ -56,7 +70,7 @@ def ensure_sandbox_image(image: str = SANDBOX_IMAGE) -> Tuple[bool, str]:
         inspect = subprocess.run(
             ["docker", "image", "inspect", image],
             capture_output=True,
-            text=True,
+            text=False,
             timeout=10,
         )
         if inspect.returncode == 0:
@@ -74,11 +88,11 @@ def ensure_sandbox_image(image: str = SANDBOX_IMAGE) -> Tuple[bool, str]:
         build = subprocess.run(
             ["docker", "build", "-t", image, "-f", str(dockerfile), str(root)],
             capture_output=True,
-            text=True,
+            text=False,
             timeout=600,
         )
         if build.returncode != 0:
-            out = (build.stdout or "").strip() + "\n" + (build.stderr or "").strip()
+            out = _decode(build.stdout).strip() + "\n" + _decode(build.stderr).strip()
             return False, f"Docker build failed: {out.strip()}"
         return True, "built"
     except Exception as e:
@@ -100,7 +114,7 @@ def run_tool_in_docker(
         return ToolResult(success=False, output=None, error=f"Sandbox image unavailable: {msg}")
 
     payload = {"capability": capability, "parameters": parameters}
-    payload_json = json.dumps(payload)
+    payload_bytes = json.dumps(payload).encode("utf-8")
 
     cmd = [
         "docker",
@@ -120,18 +134,29 @@ def run_tool_in_docker(
     cmd.extend([config.image, "python", "-m", "src.runtime.docker_tool_runner"])
 
     try:
+        # NOTE: we intentionally use bytes (text=False). On Windows, Python's
+        # default stdout decoding can fall back to the OEM codepage and crash
+        # on non-cp1252 bytes emitted by Docker. Capturing bytes and decoding
+        # explicitly with errors="replace" keeps the runtime resilient.
         proc = subprocess.run(
             cmd,
-            input=payload_json,
+            input=payload_bytes,
             capture_output=True,
-            text=True,
+            text=False,
             timeout=config.timeout_s,
         )
-        out = (proc.stdout or "").strip()
+        out = _decode(proc.stdout).strip()
         if proc.returncode != 0:
-            err = (proc.stderr or "").strip()
+            err = _decode(proc.stderr).strip()
             return ToolResult(success=False, output={"stdout": out, "stderr": err}, error="Sandboxed tool failed.")
-        data = json.loads(out) if out else {}
+        try:
+            data = json.loads(out) if out else {}
+        except (ValueError, json.JSONDecodeError) as e:
+            return ToolResult(
+                success=False,
+                output={"stdout": out},
+                error=f"Sandbox produced non-JSON output: {e}",
+            )
         return ToolResult(
             success=bool(data.get("success")),
             output=data.get("output"),

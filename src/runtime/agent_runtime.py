@@ -98,6 +98,26 @@ class AgentRuntime:
             return False
         return self._approval_callback(capability, parameters)
 
+    @staticmethod
+    def _apply_policy_resource_limits(
+        parameters: Dict[str, Any], decision: Decision
+    ) -> Dict[str, Any]:
+        """Forward policy-surfaced resource limits to the tool (caller wins).
+
+        Currently propagated:
+        - ``max_response_size`` (used by ``http.fetch`` to cap streamed bytes).
+
+        Caller-provided values are never overwritten; this only fills gaps so a
+        tool default does not silently relax a stricter policy limit.
+        """
+        details = decision.details or {}
+        if not details:
+            return parameters
+        merged = dict(parameters)
+        if "max_response_size" in details and "max_response_size" not in merged:
+            merged["max_response_size"] = details["max_response_size"]
+        return merged
+
     def execute_tool(
         self,
         capability: str,
@@ -216,6 +236,13 @@ class AgentRuntime:
                         },
                     )
                 return ExecuteResult(allowed=False, explanation=explanation, decision=None)
+
+        # [Phase 0 hotfix] Inject policy-driven resource limits into tool parameters.
+        # Policy-derived constraints surfaced in `decision.details` (e.g. max_response_size)
+        # are passed to the tool only when the caller has not already supplied them. This
+        # prevents tools (e.g. http.fetch) from silently using their internal default cap
+        # when the operator has set a stricter limit in the policy.
+        parameters = self._apply_policy_resource_limits(parameters, decision)
 
         tool = get_tool(capability)
         if tool is None:
