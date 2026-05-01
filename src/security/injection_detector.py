@@ -178,6 +178,25 @@ class InjectionDetector:
         relaxed = _capability_relaxed(capability)
         return _compile_rules(self.sensitivity, relaxed_capability=relaxed)
 
+    def scan_text(
+        self,
+        text: str,
+        *,
+        capability: str = "tool_output",
+    ) -> InjectionScanResult:
+        """
+        Convenience wrapper for scanning a single string value.
+
+        Used primarily by the agent loop to scan tool output before re-injecting
+        it into the LLM context (Phase 1 / output-injection hardening). The
+        capability defaults to ``tool_output`` so the relaxed/strict pattern
+        selection treats this like a non-strict source; pass a real capability
+        name if you want stricter rules to apply.
+        """
+        if not isinstance(text, str):
+            text = str(text) if text is not None else ""
+        return self.scan(capability, {"output": text})
+
     def scan(self, capability: str, parameters: dict[str, Any]) -> InjectionScanResult:
         """
         Scan all string values in ``parameters`` for injection patterns.

@@ -12,3 +12,4 @@ __pycache__/
 
 # Tests
 .pytest_cache/
+tests/security/data/_last_run_summary.json
