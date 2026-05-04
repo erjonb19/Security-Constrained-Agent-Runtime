@@ -384,6 +384,49 @@ class AuditLogger:
         
         return self._log_event(event)
 
+    def log_taint_violation(
+        self,
+        capability: str,
+        parameters: Dict[str, Any],
+        source_capability: str,
+        source_id: str,
+        parameter_path: str,
+        matched_token: str,
+        reason: str,
+    ) -> str:
+        """
+        Log a taint-flow violation: data from an untrusted source was used as a
+        parameter to a high-risk sink capability.
+
+        Args:
+            capability: The sink capability that was about to execute.
+            parameters: The parameters that contained the tainted value.
+            source_capability: The capability that produced the original tainted output.
+            source_id: Short hash identifying the upstream source for correlation.
+            parameter_path: Dotted path of the offending parameter (e.g. "url" or "files[0].body").
+            matched_token: The actual substring that was found in both source and sink (truncated).
+            reason: Human-readable explanation of the violation.
+
+        Returns:
+            Event ID for correlation.
+        """
+        event = AuditEvent(
+            timestamp=datetime.now().isoformat(),
+            event_type=AuditEventType.TAINT_VIOLATION,
+            agent_id=self.agent_id,
+            capability=capability,
+            decision=DecisionType.DENY,
+            reason=reason,
+            parameters=parameters,
+            context={
+                "source_capability": source_capability,
+                "source_id": source_id,
+                "parameter_path": parameter_path,
+                "matched_token": matched_token,
+            },
+        )
+        return self._log_event(event)
+
     def log_sandbox_execution(
         self,
         capability: str,
