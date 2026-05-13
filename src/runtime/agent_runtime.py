@@ -23,6 +23,7 @@ from src.tools.base import BaseTool, ToolResult, ToolError, get_tool, register_t
 # This replaces the TODO stub in parameter_validator.py (completed in task 2.1).
 from src.security.parameter_validator import validate as validate_parameters
 from src.security.injection_detector import InjectionDetector
+from src.security.taint_tracking import TaintTracker
 from src.runtime.sandbox import SandboxConfig, docker_available, run_tool_in_docker
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class AgentRuntime:
         approval_callback: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
         audit_logger: Optional[AuditLogger] = None,
         injection_detector: Any = _DEFAULT_INJECTION_DETECTOR,
+        taint_tracker: Any = _DEFAULT_INJECTION_DETECTOR,
     ) -> None:
         self._policy_engine = policy_engine or PolicyEngine()
         self._approval_callback = approval_callback
@@ -63,6 +65,13 @@ class AgentRuntime:
             self._injection_detector: Optional[InjectionDetector] = InjectionDetector()
         else:
             self._injection_detector = injection_detector
+        # Phase 3: taint tracker. Pass None to disable; pass a custom instance to
+        # override the source/sink lists. Default is an enabled tracker with the
+        # standard source/sink configuration from src.security.taint_tracking.
+        if taint_tracker is _DEFAULT_INJECTION_DETECTOR:
+            self._taint_tracker: Optional[TaintTracker] = TaintTracker()
+        else:
+            self._taint_tracker = taint_tracker
 
     def load_policy(self, path: Optional[str | Path] = None) -> None:
         """Load policy from file (YAML/JSON). Raises on validation error."""
@@ -237,6 +246,34 @@ class AgentRuntime:
                     )
                 return ExecuteResult(allowed=False, explanation=explanation, decision=None)
 
+        # [Phase 3] Taint sink check: deny if any parameter contains data from
+        # a previous tool's output and the destination capability is a sink.
+        # This catches confused-deputy flows that pass injection scanning because
+        # the substring is innocent on its own (e.g. a URL read from a file).
+        if self._taint_tracker is not None and self._taint_tracker.is_sink(capability):
+            taint = self._taint_tracker.check_sink(capability, parameters)
+            if taint.violated:
+                explanation = (
+                    f"Blocked: tainted data flow into sink {capability!r}. {taint.reason}"
+                )
+                logger.info(
+                    "execute_tool taint blocked: %s <- %s at %s",
+                    capability,
+                    taint.source_capability,
+                    taint.parameter_path,
+                )
+                if self.audit_logger:
+                    self.audit_logger.log_taint_violation(
+                        capability=capability,
+                        parameters=parameters,
+                        source_capability=taint.source_capability,
+                        source_id=taint.source_id,
+                        parameter_path=taint.parameter_path,
+                        matched_token=taint.matched_token,
+                        reason=taint.reason,
+                    )
+                return ExecuteResult(allowed=False, explanation=explanation, decision=None)
+
         # [Phase 0 hotfix] Inject policy-driven resource limits into tool parameters.
         # Policy-derived constraints surfaced in `decision.details` (e.g. max_response_size)
         # are passed to the tool only when the caller has not already supplied them. This
@@ -343,6 +380,14 @@ class AgentRuntime:
                     explanation=explanation,
                     decision=denial_decision,
                 )
+
+            # [Phase 3] Register a successful tool output as a taint source if
+            # this capability is configured as one. We register the *redacted*
+            # output so secrets do not enter the taint store. This is the only
+            # place outputs are recorded; failed executions do not produce
+            # taint sources.
+            if self._taint_tracker is not None and self._taint_tracker.is_source(capability):
+                self._taint_tracker.register_source(capability, redacted_output)
         except ToolError as exc:
             execution_time_ms = (datetime.now() - exec_start_time).total_seconds() * 1000
             redacted_error = redact_text(str(exc))
