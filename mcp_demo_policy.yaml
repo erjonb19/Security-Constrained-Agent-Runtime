@@ -1,0 +1,21 @@
+# Milestone 1 demo policy for the guarded MCP server.
+# Same schema as examples/policies/Policy.yaml. Default-deny.
+# This gives a clean allow path (demo.echo) and two deny paths
+# (http.fetch via approval, git.push via allowed:false).
+
+version: "1.0"
+default_policy: deny
+
+capabilities:
+  - name: demo.echo
+    allowed: true
+    constraints:
+      require_approval: false
+
+  - name: http.fetch
+    allowed: true
+    constraints:
+      require_approval: true
+
+  - name: git.push
+    allowed: false
