@@ -1,0 +1,74 @@
+# Medicare Utilization Intelligence Agent -- policy
+# Default-deny. Capabilities are tiered by one test: does the action have a
+# side effect outside the agent's memory, and can a human cheaply undo it.
+#
+# Autonomous  = no side effect (reads, in-memory drafting)
+# Gated       = consequential but bounded, requires a named human approver
+# Denied      = irreversible, out of scope, or self-governing
+
+version: "1.0"
+default_policy: deny
+
+capabilities:
+  # ---- Autonomous: safe reads and drafting --------------------------------
+  - name: analytics.query_aggregate
+    allowed: true
+    constraints:
+      require_approval: false
+      # Enforced by sql_guard.validate_query before execution:
+      #   SELECT only, Gold table allowlist, row cap, no catalog, no file funcs
+      read_only: true
+      tables_allowlist: [gold_utilization, gold_cost, gold_region_profile, gold_anomaly]
+      row_cap: 1000
+
+  - name: analytics.detect_anomaly
+    allowed: true
+    constraints:
+      require_approval: false
+
+  - name: analytics.get_context
+    allowed: true
+    constraints:
+      require_approval: false
+
+  - name: brief.draft
+    allowed: true
+    constraints:
+      require_approval: false
+      # draft is held in memory; it cannot advance until groundedness passes
+
+  # ---- Gated: consequential, needs a named human --------------------------
+  - name: analytics.query_member
+    allowed: true
+    constraints:
+      require_approval: true
+      minimum_necessary: true   # member-level read, PHI-shaped even on public data
+
+  - name: brief.commit
+    allowed: true
+    constraints:
+      require_approval: true
+      require_groundedness: true   # every cited figure must trace to a queried row
+
+  - name: case.escalate
+    allowed: true
+    constraints:
+      require_approval: true
+
+  - name: notify.send
+    allowed: true
+    constraints:
+      require_approval: true
+      recipients_allowlist: true
+
+  # ---- Denied outright ----------------------------------------------------
+  - name: data.write
+    allowed: false
+  - name: data.delete
+    allowed: false
+  - name: action.execute_operational
+    allowed: false      # the agent recommends, it never acts
+  - name: shell.exec
+    allowed: false
+  - name: policy.modify
+    allowed: false      # the agent can never edit the policy that governs it

@@ -1,15 +1,8 @@
-# Exclude doc(s) folder from git
-doc/
-docs/
-
-# Python
-*.pyc
+﻿venv311/
 __pycache__/
-
-# Package / install
-*.egg-info/
-*.egg
-
-# Tests
-.pytest_cache/
-tests/security/data/_last_run_summary.json
+*.pyc
+.env
+data/
+logs/
+*.log
+venv/
