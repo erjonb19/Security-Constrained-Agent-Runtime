@@ -1,0 +1,23 @@
+# render.yaml -- Render Blueprint for the governed clinical agent API.
+# On connect, Render reads this and provisions the service automatically.
+# Secrets (CEREBRAS_API_KEY, API_KEY) are set in the dashboard, never in git.
+
+services:
+  - type: web
+    name: governed-clinical-agent
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-api.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Planner model key. Set the value in the Render dashboard.
+      - key: CEREBRAS_API_KEY
+        sync: false
+      # API key required on the data endpoints. Set the value in the dashboard.
+      - key: API_KEY
+        sync: false
+      # Path to the committed hospital Gold (already in the repo).
+      - key: HOSPITAL_GOLD_DB
+        value: medallion/hospital_gold.duckdb
