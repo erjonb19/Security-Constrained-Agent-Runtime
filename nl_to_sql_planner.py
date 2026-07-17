@@ -87,6 +87,10 @@ Rules:
 - Only use the table and columns listed above.
 - When a measure can be NULL, add a "column IS NOT NULL" filter so nulls don't sort to the top.
 - Always include a sensible ORDER BY and a LIMIT (15 unless the question implies otherwise).
+- Make ordering DETERMINISTIC: whenever you ORDER BY a measure, add facility_id ASC
+  as the final tie-breaker (e.g. ORDER BY mspb_score DESC, facility_id ASC). This
+  guarantees the same rows come back in the same order every run, even when several
+  hospitals share the same value.
 - Lower is better for readmission rates and ED times; higher is better for star_rating.
 """
 
