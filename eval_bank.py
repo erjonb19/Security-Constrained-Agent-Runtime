@@ -27,6 +27,15 @@ Tie-break convention: every ordered query breaks ties on facility_id ASC so the
 expected answer is deterministic. The agent must do the same to match exactly.
 """
 
+SUBSET_IDS = {
+    "t1_count_all",
+    "t1_max_psych_ed",
+    "t2_avg_mspb_pa",
+    "t3_highest_mspb_top5",
+    "t4_best_value_top10",
+    "t4_lowest_ratio_top5",
+}
+
 CASES = [
     # ===================== tier 1: simple aggregates =====================
     {

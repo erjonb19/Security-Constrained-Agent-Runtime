@@ -39,7 +39,7 @@ from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner
 from data_backends import LocalDuckDBBackend, get_backend
-from eval_bank import CASES
+from eval_bank import CASES, SUBSET_IDS
 
 GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
@@ -139,6 +139,15 @@ def main():
     ap.add_argument("--runs", type=int, default=DEFAULT_RUNS)
     args = ap.parse_args()
     runs = args.runs
+    # env overrides for CI: EVAL_RUNS sets runs, EVAL_SUBSET=1 runs the quick subset
+    if os.environ.get('EVAL_RUNS'):
+        try:
+            runs = int(os.environ['EVAL_RUNS'])
+        except ValueError:
+            pass
+    active_cases = CASES
+    if os.environ.get('EVAL_SUBSET') == '1':
+        active_cases = [c for c in CASES if c['id'] in SUBSET_IDS]
 
     if not os.path.exists(GOLD_DB):
         sys.exit(f"missing {GOLD_DB} -- build the hospital Gold first")
@@ -150,11 +159,11 @@ def main():
     ref_backend = LocalDuckDBBackend(GOLD_DB)
 
     # precompute reference answers once
-    for case in CASES:
+    for case in active_cases:
         _, case["_ref_rows"] = ref_backend.execute(case["reference_sql"])
 
     backend_kind = get_backend(GOLD_DB).kind
-    print(f"eval: {len(CASES)} cases x {runs} runs | backend={backend_kind} | "
+    print(f"eval: {len(active_cases)} cases x {runs} runs | backend={backend_kind} | "
           f"planner={planner.provider} ({planner._model})\n")
 
     case_results = []
@@ -162,7 +171,7 @@ def main():
     failure_counts = defaultdict(int)
     t_start = time.time()
 
-    for case in CASES:
+    for case in active_cases:
         outcomes = []
         details = []
         for _ in range(runs):
@@ -188,13 +197,13 @@ def main():
 
     elapsed = time.time() - t_start
     n_pass = sum(1 for c in case_results if c["passed"])
-    total_runs = len(CASES) * runs
+    total_runs = len(active_cases) * runs
     correct_runs = sum(c["correct_runs"] for c in case_results)
     run_accuracy = correct_runs / total_runs
-    case_pass_rate = n_pass / len(CASES)
+    case_pass_rate = n_pass / len(active_cases)
 
     print("\n" + "=" * 60)
-    print(f"cases passed (majority-correct): {n_pass}/{len(CASES)}  ({case_pass_rate:.0%})")
+    print(f"cases passed (majority-correct): {n_pass}/{len(active_cases)}  ({case_pass_rate:.0%})")
     print(f"run-level accuracy:              {correct_runs}/{total_runs}  ({run_accuracy:.0%})")
     print("per tier (run-level):")
     for tier in sorted(tier_totals):
