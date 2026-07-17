@@ -1,0 +1,44 @@
+# .github/workflows/eval-on-push.yml
+# Quick evaluation gate on every push and pull request.
+# Runs a small subset of the eval bank so feedback is fast and cheap, then
+# fails the build if accuracy falls below the gate. This is the "deployment
+# eval gate" pattern: a regression that drops agent accuracy blocks the merge.
+
+name: eval (quick gate)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:        # allows manual runs from the Actions tab
+
+jobs:
+  quick-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt
+
+      - name: Run quick eval (subset)
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          EVAL_SUBSET: "1"        # harness runs the tagged subset only
+          EVAL_RUNS: "1"          # one run per case keeps the gate fast
+        run: python eval_harness.py
+
+      - name: Upload eval report
+        if: always()              # keep the report even if the gate fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-quick
+          path: eval_runs/
