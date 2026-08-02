@@ -49,6 +49,40 @@ PROVIDERS = {
 }
 ACTIVE_PROVIDER = "cerebras"
 
+# Cost is tokens x rate. Tokens are ground truth and never go stale; the RATE
+# is the volatile part (providers change prices -- Cerebras changed tiers in
+# July 2026), so it lives in ONE place. Update this, not the code, when pricing
+# moves. USD per 1M tokens, a labeled ESTIMATE, not a bill.
+COST_PER_1M_INPUT = 0.85    # gpt-oss-120b input, approximate
+COST_PER_1M_OUTPUT = 0.85   # gpt-oss-120b output, approximate
+
+
+class CallMetrics:
+    """Per-call cost and latency for one model invocation."""
+    def __init__(self, latency_ms, prompt_tokens, completion_tokens, model, provider):
+        self.latency_ms = latency_ms
+        self.prompt_tokens = prompt_tokens or 0
+        self.completion_tokens = completion_tokens or 0
+        self.total_tokens = self.prompt_tokens + self.completion_tokens
+        self.model = model
+        self.provider = provider
+        self.est_cost_usd = round(
+            (self.prompt_tokens / 1_000_000) * COST_PER_1M_INPUT
+            + (self.completion_tokens / 1_000_000) * COST_PER_1M_OUTPUT,
+            6,
+        )
+
+    def as_dict(self) -> dict:
+        return {
+            "latency_ms": self.latency_ms,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "est_cost_usd": self.est_cost_usd,
+            "model": self.model,
+            "provider": self.provider,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Schema the model is allowed to write against. Keep this in sync with the
@@ -120,7 +154,16 @@ class NLToSQLPlanner:
         # drop a trailing semicolon (guard rejects stacked/empty trailing stmts)
         return t.rstrip(";").strip()
 
-    def generate_sql(self, question: str) -> str:
+    def generate_sql_with_metrics(self, question: str):
+        """Generate SQL and capture per-call latency + token usage.
+
+        Returns (sql, CallMetrics). The OpenAI-compatible response carries token
+        usage in resp.usage -- every major provider returns this. We time the
+        call ourselves for latency. This is exactly how production systems track
+        LLM cost: read tokens from the response, multiply by a configurable rate.
+        """
+        import time
+        t0 = time.perf_counter()
         resp = self._client.chat.completions.create(
             model=self._model,
             messages=[
@@ -130,7 +173,22 @@ class NLToSQLPlanner:
             temperature=0.1,
             max_tokens=800,
         )
-        return self._extract_sql(resp.choices[0].message.content or "")
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        usage = getattr(resp, "usage", None)
+        metrics = CallMetrics(
+            latency_ms=latency_ms,
+            prompt_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
+            completion_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+            model=self._model,
+            provider=self.provider,
+        )
+        sql = self._extract_sql(resp.choices[0].message.content or "")
+        return sql, metrics
+
+    def generate_sql(self, question: str) -> str:
+        """SQL only. Backward-compatible wrapper over generate_sql_with_metrics."""
+        sql, _ = self.generate_sql_with_metrics(question)
+        return sql
 
 
 # ---------------------------------------------------------------------------

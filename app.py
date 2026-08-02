@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
+import cost_tracker
 
 GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
@@ -116,6 +117,7 @@ class GovernedResponse(BaseModel):
     row_count: Optional[int] = None
     columns: Optional[list] = None
     rows: Optional[list] = None
+    planner_metrics: Optional[dict] = None   # per-call latency, tokens, est cost
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +197,19 @@ def query(req: QueryRequest) -> dict:
             "reason": f"planner not configured: {_STATE.get('planner_error')}",
         }
     try:
-        sql = planner.generate_sql(req.question)
+        sql, metrics = planner.generate_sql_with_metrics(req.question)
     except Exception as e:
         return {"allowed": False, "decided_by": "policy", "reason": f"planner error: {e}"}
-    return run_governed_sql(sql)
+    out = run_governed_sql(sql)
+    out["planner_metrics"] = metrics.as_dict()
+    cost_tracker.record(metrics.as_dict(), question=req.question)
+    return out
+
+
+@app.get("/metrics")
+def metrics() -> dict:
+    """Aggregate cost and latency across all planner calls (optimization view)."""
+    return cost_tracker.summarize()
 
 
 @app.get("/")
@@ -206,5 +217,5 @@ def root() -> dict:
     return {
         "service": "Security-Constrained Agent Runtime",
         "docs": "/docs",
-        "endpoints": ["/health", "/schema", "/query", "/raw-sql"],
+        "endpoints": ["/health", "/schema", "/query", "/raw-sql", "/metrics"],
     }
