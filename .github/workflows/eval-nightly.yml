@@ -1,0 +1,40 @@
+# .github/workflows/eval-nightly.yml
+# Full evaluation suite on a nightly schedule. Runs all cases, multiple times
+# each, for complete coverage and the real accuracy number. Does not run on
+# push (that is the quick gate's job), so it never slows down development.
+
+name: eval (full nightly)
+
+on:
+  schedule:
+    - cron: "0 7 * * *"         # 07:00 UTC daily (~2-3am ET)
+  workflow_dispatch:            # allows manual full runs any time
+
+jobs:
+  full-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt
+
+      - name: Run full eval (all cases, 3 runs each)
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          EVAL_RUNS: "3"
+        run: python eval_harness.py --runs 3
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-nightly
+          path: eval_runs/
