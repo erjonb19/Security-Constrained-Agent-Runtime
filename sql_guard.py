@@ -52,6 +52,15 @@ DENIED_FUNCTIONS = {
     "read_csv", "read_csv_auto", "read_parquet", "read_json",
     "read_json_auto", "glob", "read_text", "read_blob",
     "load", "install", "copy",
+    # Catalog-introspection table functions. These expose the SAME metadata as
+    # information_schema, which we already deny by schema name -- but they are
+    # FUNCTIONS, so the schema rule never sees them. Found by adversarial
+    # testing: SELECT * FROM duckdb_tables() was passing the guard.
+    "duckdb_tables", "duckdb_columns", "duckdb_schemas", "duckdb_databases",
+    "duckdb_views", "duckdb_constraints", "duckdb_indexes", "duckdb_settings",
+    "duckdb_functions", "duckdb_types", "duckdb_keywords",
+    "pragma_table_info", "pragma_database_list", "pragma_show_tables",
+    "show_tables", "sqlite_master",
 }
 
 # Catalog / system schemas the agent must never browse.
@@ -198,6 +207,11 @@ if __name__ == "__main__":
          "SELECT region FROM gold_utilization WHERE region IN (SELECT region FROM secret_costs)"),
         ("update inside a CTE",
          "WITH x AS (UPDATE gold_cost SET pmpm = 0 RETURNING region) SELECT * FROM x"),
+        # catalog-introspection backdoors: same exposure as information_schema,
+        # but reached through table FUNCTIONS instead of a schema name.
+        ("catalog function backdoor", "SELECT * FROM duckdb_tables()"),
+        ("catalog columns backdoor", "SELECT * FROM duckdb_columns()"),
+        ("pragma table info", "SELECT * FROM pragma_table_info('gold_utilization')"),
     ]
 
     def run(label, cases):
