@@ -5,3 +5,4 @@ duckdb
 sqlglot
 openai
 pyyaml
+langgraph
