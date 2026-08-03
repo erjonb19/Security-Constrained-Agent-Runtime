@@ -134,9 +134,31 @@ def run_once(case, runtime, planner) -> tuple[str, str]:
     return score_one(case, (tr.output or {}).get("rows", []))
 
 
+def run_once_graph(case, agent):
+    """One attempt at one case THROUGH THE GRAPH (self-correcting, bounded retries).
+
+    Scoring is identical to the single-shot path -- same score_one() -- so the
+    comparison is apples-to-apples. Only the execution path differs.
+    """
+    try:
+        state = agent.run(case["question"])
+    except Exception as e:
+        return F_MODEL_ERROR, str(e)[:120], 1
+    attempts = state.get("attempts", 1)
+    if not state.get("allowed"):
+        reason = str(state.get("reason") or "denied")
+        mode = F_GUARD_DENIED if "guard" in reason.lower() else F_SQL_ERROR
+        return mode, reason[:120], attempts
+    fmode, detail = score_one(case, state.get("rows") or [])
+    return fmode, detail, attempts
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=DEFAULT_RUNS)
+    ap.add_argument("--graph", action="store_true",
+                    help="route through the LangGraph self-correcting agent "
+                         "instead of the single-shot planner")
     args = ap.parse_args()
     runs = args.runs
     # env overrides for CI: EVAL_RUNS sets runs, EVAL_SUBSET=1 runs the quick subset
@@ -152,9 +174,18 @@ def main():
     if not os.path.exists(GOLD_DB):
         sys.exit(f"missing {GOLD_DB} -- build the hospital Gold first")
 
-    runtime = AgentRuntime()
-    runtime.load_policy(POLICY_PATH)
-    runtime.register_tool(AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False))
+    # The tool registry is global: a capability can only be registered once per
+    # process. In graph mode the GovernedAgentGraph builds its OWN runtime and
+    # registers the tool itself, so we must NOT also build the single-shot one.
+    graph_agent = None
+    runtime = None
+    if args.graph:
+        from agent_graph import GovernedAgentGraph
+        graph_agent = GovernedAgentGraph(db_path=GOLD_DB)
+    else:
+        runtime = AgentRuntime()
+        runtime.load_policy(POLICY_PATH)
+        runtime.register_tool(AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False))
     planner = NLToSQLPlanner()
     ref_backend = LocalDuckDBBackend(GOLD_DB)
 
@@ -163,8 +194,9 @@ def main():
         _, case["_ref_rows"] = ref_backend.execute(case["reference_sql"])
 
     backend_kind = get_backend(GOLD_DB).kind
-    print(f"eval: {len(active_cases)} cases x {runs} runs | backend={backend_kind} | "
-          f"planner={planner.provider} ({planner._model})\n")
+    mode_label = "GRAPH (self-correcting)" if args.graph else "SINGLE-SHOT"
+    print(f"eval: {len(active_cases)} cases x {runs} runs | path={mode_label} | "
+          f"backend={backend_kind} | planner={planner.provider} ({planner._model})\n")
 
     case_results = []
     tier_totals = defaultdict(lambda: [0, 0])   # tier -> [correct_runs, total_runs]
@@ -174,8 +206,14 @@ def main():
     for case in active_cases:
         outcomes = []
         details = []
+        attempts_used = []
         for _ in range(runs):
-            mode, detail = run_once(case, runtime, planner)
+            if graph_agent is not None:
+                mode, detail, n_att = run_once_graph(case, graph_agent)
+                attempts_used.append(n_att)
+            else:
+                mode, detail = run_once(case, runtime, planner)
+                attempts_used.append(1)
             outcomes.append(mode)
             details.append(detail)
             failure_counts[mode] += 1
@@ -190,6 +228,7 @@ def main():
             "id": case["id"], "tier": case["tier"], "question": case["question"],
             "correct_runs": correct, "runs": runs, "stability": round(stability, 2),
             "passed": passed, "outcomes": outcomes, "sample_detail": details[0],
+            "avg_attempts": round(sum(attempts_used) / len(attempts_used), 2),
         })
         flag = "PASS" if passed else "FAIL"
         bar = "".join("O" if o == F_CORRECT else "x" for o in outcomes)
@@ -213,6 +252,13 @@ def main():
     for mode, n in sorted(failure_counts.items(), key=lambda x: -x[1]):
         if mode != F_CORRECT:
             print(f"  {mode}: {n}")
+    if graph_agent is not None:
+        all_att = [c["avg_attempts"] for c in case_results]
+        retried = [c for c in case_results if c["avg_attempts"] > 1.0]
+        print(f"self-correction: {len(retried)}/{len(case_results)} cases needed a retry "
+              f"(avg attempts {sum(all_att)/len(all_att):.2f})")
+        for c in retried:
+            print(f"    {c['id']}: avg {c['avg_attempts']} attempts, passed={c['passed']}")
     print(f"elapsed: {elapsed:.0f}s")
 
     # write timestamped report for regression tracking
@@ -220,6 +266,7 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report = {
         "timestamp": stamp,
+        "path": "graph" if args.graph else "single_shot",
         "backend": backend_kind,
         "model": planner._model,
         "runs_per_case": runs,
@@ -229,7 +276,8 @@ def main():
         "failure_counts": dict(failure_counts),
         "cases": case_results,
     }
-    path = os.path.join(OUT_DIR, f"eval_{stamp}.json")
+    tag = "graph" if args.graph else "single"
+    path = os.path.join(OUT_DIR, f"eval_{tag}_{stamp}.json")
     with open(path, "w") as f:
         json.dump(report, f, indent=2)
     print(f"\nreport -> {path}")

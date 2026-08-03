@@ -247,4 +247,57 @@ CASES = [
                           "WHERE ed_median_min < 150 AND ed_left_before_seen_pct < 2"),
         "mode": "scalar",
     },
+
+    # ===================== tier 5: hard / failure-prone =====================
+    # These exist to give SELF-CORRECTION something to actually fix. The
+    # single-shot path has no headroom at 30/30, so measuring whether retry
+    # helps requires cases where a first attempt plausibly fails. These are hard
+    # for REAL reasons -- ambiguous phrasing, clinical vocabulary that does not
+    # map 1:1 to a column, unusual aggregations -- not artificially rigged.
+    {
+        "id": "t5_clinical_vocab_copd", "tier": 5,
+        "question": ("Among facilities reporting it, what is the average 30-day all-cause readmission rate "
+                     "for patients with chronic obstructive pulmonary disease? Round to 2 decimals."),
+        "reference_sql": ("SELECT round(avg(readmit_copd), 2) AS v FROM gold_hospital_profile "
+                          "WHERE readmit_copd IS NOT NULL"),
+        "mode": "scalar",
+    },
+    {
+        "id": "t5_boarding_gap", "tier": 5,
+        "question": ("Behavioral health boarding gap: among facilities that report BOTH an overall ED median time "
+                     "and a psychiatric ED median time, list the facility_id of the 5 with the largest difference "
+                     "(psychiatric minus overall), largest gap first."),
+        "reference_sql": ("SELECT facility_id FROM gold_hospital_profile "
+                          "WHERE ed_psych_median_min IS NOT NULL AND ed_median_min IS NOT NULL "
+                          "ORDER BY (ed_psych_median_min - ed_median_min) DESC, facility_id ASC LIMIT 5"),
+        "mode": "keyed", "key_columns": ["facility_id"],
+    },
+    {
+        "id": "t5_cost_efficiency_ratio", "tier": 5,
+        "question": ("Cost efficiency: among hospitals with both measures, list the facility_id of the 5 with the "
+                     "lowest ratio of MSPB score to star rating, lowest ratio first."),
+        "reference_sql": ("SELECT facility_id FROM gold_hospital_profile "
+                          "WHERE mspb_score IS NOT NULL AND star_rating IS NOT NULL AND star_rating > 0 "
+                          "ORDER BY (mspb_score / star_rating) ASC, facility_id ASC LIMIT 5"),
+        "mode": "keyed", "key_columns": ["facility_id"],
+    },
+    {
+        "id": "t5_above_avg_count", "tier": 5,
+        "question": ("How many hospitals have a hospital-wide readmission rate ABOVE the overall average "
+                     "hospital-wide readmission rate across all facilities that report one?"),
+        "reference_sql": ("SELECT count(*) AS n FROM gold_hospital_profile "
+                          "WHERE readmit_hwr > (SELECT avg(readmit_hwr) FROM gold_hospital_profile "
+                          "WHERE readmit_hwr IS NOT NULL)"),
+        "mode": "scalar",
+    },
+    {
+        "id": "t5_condition_spread", "tier": 5,
+        "question": ("Among facilities reporting both, list the facility_id of the 5 hospitals where the heart "
+                     "failure readmission rate exceeds the pneumonia readmission rate by the greatest margin, "
+                     "largest margin first."),
+        "reference_sql": ("SELECT facility_id FROM gold_hospital_profile "
+                          "WHERE readmit_hf IS NOT NULL AND readmit_pn IS NOT NULL "
+                          "ORDER BY (readmit_hf - readmit_pn) DESC, facility_id ASC LIMIT 5"),
+        "mode": "keyed", "key_columns": ["facility_id"],
+    },
 ]
