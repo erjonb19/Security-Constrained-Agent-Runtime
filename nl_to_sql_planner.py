@@ -46,15 +46,36 @@ PROVIDERS = {
         "api_key_env": "GROQ_API_KEY",
         "model": "llama-3.3-70b-versatile",
     },
+    # Anthropic exposes an OpenAI-SDK-compatible endpoint, so Claude drops into
+    # the SAME abstraction with no client-code changes -- the payoff of building
+    # this provider-agnostic from the start. This is the frontier-model option
+    # for harder or more ambiguous questions, where the fast open models can be
+    # underspecified.
+    "anthropic": {
+        "base_url": "https://api.anthropic.com/v1/",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-5",
+    },
 }
-ACTIVE_PROVIDER = "cerebras"
+# One line to switch providers, or set PLANNER_PROVIDER in the environment.
+# The guard, policy, eval suite, and API are all unchanged by this choice --
+# governance holds regardless of which model writes the SQL.
+ACTIVE_PROVIDER = os.environ.get("PLANNER_PROVIDER", "cerebras")
 
 # Cost is tokens x rate. Tokens are ground truth and never go stale; the RATE
 # is the volatile part (providers change prices -- Cerebras changed tiers in
 # July 2026), so it lives in ONE place. Update this, not the code, when pricing
 # moves. USD per 1M tokens, a labeled ESTIMATE, not a bill.
-COST_PER_1M_INPUT = 0.85    # gpt-oss-120b input, approximate
-COST_PER_1M_OUTPUT = 0.85   # gpt-oss-120b output, approximate
+#
+# Rates are PER PROVIDER: a frontier model costs materially more than a fast
+# open model, so a single global rate would silently misreport cost the moment
+# you switch backends.
+PROVIDER_RATES = {
+    "cerebras":  {"input": 0.85, "output": 0.85},
+    "groq":      {"input": 0.59, "output": 0.79},
+    "anthropic": {"input": 3.00, "output": 15.00},
+}
+_DEFAULT_RATE = {"input": 1.00, "output": 1.00}
 
 
 class CallMetrics:
@@ -66,9 +87,10 @@ class CallMetrics:
         self.total_tokens = self.prompt_tokens + self.completion_tokens
         self.model = model
         self.provider = provider
+        rate = PROVIDER_RATES.get(provider, _DEFAULT_RATE)
         self.est_cost_usd = round(
-            (self.prompt_tokens / 1_000_000) * COST_PER_1M_INPUT
-            + (self.completion_tokens / 1_000_000) * COST_PER_1M_OUTPUT,
+            (self.prompt_tokens / 1_000_000) * rate["input"]
+            + (self.completion_tokens / 1_000_000) * rate["output"],
             6,
         )
 

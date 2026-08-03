@@ -225,7 +225,14 @@ def _demo():
 
     agent = GovernedAgentGraph()
     questions = [
-        "Which hospitals give the best value, high quality and low cost?",
+        # Care-navigation / network steering: where should we route members for
+        # a high-volume condition, balancing quality against cost?
+        "For heart failure care coordination, which in-network hospitals should we "
+        "steer members to, balancing readmission performance against cost?",
+        # Behavioral-health access gap: psychiatric boarding in the ED is a real
+        # provider-side operational problem and a care-coordination failure mode.
+        "Which facilities have the longest psychiatric emergency department boarding "
+        "times, where behavioral health patients are waiting for placement?",
         # This one reliably trips the guard. The CORRECT answer to "list every
         # table" is a query against information_schema -- which the guard denies
         # outright (no catalog/system schemas). The agent writes it faithfully
