@@ -39,9 +39,20 @@ from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner
 from data_backends import LocalDuckDBBackend, get_backend
-from eval_bank import CASES, SUBSET_IDS
+# Two ground-truth banks, one per dataset. EVAL_DATASET selects which, and it
+# MUST match the database the analytics tool is connected to -- a bank is only
+# an answer key for the data it was written against.
+_DATASET = os.environ.get("EVAL_DATASET", "hospital").lower()
+if _DATASET == "fhir":
+    from eval_bank_fhir import CASES, SUBSET_IDS
+    _DEFAULT_DB = "medallion/fhir_gold.duckdb"
+    _DEFAULT_SCHEMA = "fhir"
+else:
+    from eval_bank import CASES, SUBSET_IDS
+    _DEFAULT_DB = "medallion/hospital_gold.duckdb"
+    _DEFAULT_SCHEMA = "hospital"
 
-GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
+GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", _DEFAULT_DB)
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
 CAPABILITY = "analytics.query_aggregate"
 
@@ -186,6 +197,7 @@ def main():
         runtime = AgentRuntime()
         runtime.load_policy(POLICY_PATH)
         runtime.register_tool(AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False))
+    os.environ.setdefault("PLANNER_SCHEMA", _DEFAULT_SCHEMA)
     planner = NLToSQLPlanner()
     ref_backend = LocalDuckDBBackend(GOLD_DB)
 
@@ -195,7 +207,7 @@ def main():
 
     backend_kind = get_backend(GOLD_DB).kind
     mode_label = "GRAPH (self-correcting)" if args.graph else "SINGLE-SHOT"
-    print(f"eval: {len(active_cases)} cases x {runs} runs | path={mode_label} | "
+    print(f"eval: {len(active_cases)} cases x {runs} runs | dataset={_DATASET} | path={mode_label} | "
           f"backend={backend_kind} | planner={planner.provider} ({planner._model})\n")
 
     case_results = []
@@ -266,6 +278,7 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report = {
         "timestamp": stamp,
+        "dataset": _DATASET,
         "path": "graph" if args.graph else "single_shot",
         "backend": backend_kind,
         "model": planner._model,
@@ -276,7 +289,7 @@ def main():
         "failure_counts": dict(failure_counts),
         "cases": case_results,
     }
-    tag = "graph" if args.graph else "single"
+    tag = ("graph" if args.graph else "single") + "_" + _DATASET
     path = os.path.join(OUT_DIR, f"eval_{tag}_{stamp}.json")
     with open(path, "w") as f:
         json.dump(report, f, indent=2)
