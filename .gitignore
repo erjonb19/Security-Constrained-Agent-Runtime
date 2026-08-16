@@ -8,3 +8,5 @@ logs/
 venv/
 eval_runs/
 eval_runs/
+medallion/fhir_gold.duckdb
+medallion/*.parquet
