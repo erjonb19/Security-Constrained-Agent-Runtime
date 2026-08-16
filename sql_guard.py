@@ -40,11 +40,24 @@ from sqlglot import exp
 # Config. Edit these as you learn what the agent does. This is your loop.
 # ---------------------------------------------------------------------------
 ALLOWED_TABLES = {
+    # --- CMS hospital-quality Gold (medallion/hospital_gold.duckdb) ---
     "gold_utilization",
     "gold_cost",
     "gold_region_profile",
     "gold_anomaly",
     "gold_hospital_profile",
+    # --- FHIR clinical Gold (medallion/fhir_gold.duckdb) ---
+    # ONLY the curated Gold views are allowlisted. The bronze_* tables are
+    # deliberately EXCLUDED: they carry raw FHIR fields including patient names,
+    # addresses, and identifiers. In a real deployment those are PHI. Restricting
+    # the agent to the Gold layer is the analytics equivalent of querying a
+    # de-identified view instead of the source system.
+    "gold_patient",
+    "gold_encounter",
+    "gold_condition",
+    "gold_observation",
+    "gold_medication",
+    "gold_procedure",
 }
 
 # Functions that can read the filesystem or exfiltrate. DuckDB-flavored.
@@ -195,6 +208,14 @@ if __name__ == "__main__":
         ("hospital best-value: high quality low cost",
          "SELECT facility_name, state, star_rating, mspb_score FROM gold_hospital_profile "
          "WHERE star_rating >= 4 AND mspb_score < 1.0 ORDER BY mspb_score LIMIT 15"),
+        ("clinical: hypertensive patients with high BMI",
+         "SELECT c.patient_id, o.value_num FROM gold_condition c "
+         "JOIN gold_observation o ON c.patient_id = o.patient_id "
+         "WHERE c.condition_name = 'Hypertension' AND o.measure_name = 'Body Mass Index' "
+         "AND o.value_num > 30 LIMIT 20"),
+        ("clinical: average glucose by gender",
+         "SELECT gender, avg(value_num) FROM gold_observation "
+         "WHERE measure_name = 'Glucose' GROUP BY gender"),
     ]
     bad = [
         ("drop a table", "DROP TABLE gold_utilization"),
@@ -212,6 +233,17 @@ if __name__ == "__main__":
         ("catalog function backdoor", "SELECT * FROM duckdb_tables()"),
         ("catalog columns backdoor", "SELECT * FROM duckdb_columns()"),
         ("pragma table info", "SELECT * FROM pragma_table_info('gold_utilization')"),
+        # The FHIR bronze layer carries raw patient names, addresses, and
+        # identifiers -- PHI in a real deployment. Only the curated Gold views
+        # are allowlisted, so the agent cannot reach the identifiable layer even
+        # though it sits in the same database.
+        ("PHI: raw patient names in bronze",
+         "SELECT given_name, family_name, postal_code FROM bronze_patient"),
+        ("PHI: bronze observation detail",
+         "SELECT * FROM bronze_observation LIMIT 10"),
+        ("PHI: join gold to bronze to re-identify",
+         "SELECT g.patient_id, b.family_name FROM gold_condition g "
+         "JOIN bronze_patient b ON g.patient_id = b.patient_id"),
     ]
 
     def run(label, cases):

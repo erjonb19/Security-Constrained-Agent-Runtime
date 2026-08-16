@@ -111,7 +111,95 @@ class CallMetrics:
 # table actually behind AnalyticsQueryTool's db_path. Describing only the real
 # table keeps the model from inventing columns.
 # ---------------------------------------------------------------------------
-SCHEMA_DOC = """\
+# Two datasets exist. The planner is given ONE schema at a time, matching the
+# database the analytics tool is actually connected to. Describing both at once
+# would invite cross-database joins that cannot execute -- a schema doc should
+# describe reality, not everything that exists somewhere.
+SCHEMA_DOC_FHIR = """\
+FHIR clinical dataset (Synthea R4, 1,180 synthetic patients, ~367k resources).
+Curated Gold views only. Patient names/addresses are NOT available.
+
+Table: gold_patient  (one row per patient)
+Columns:
+  patient_id       TEXT
+  gender           TEXT   'male' | 'female'
+  birth_date       TEXT   ISO date
+  is_deceased      BOOLEAN
+  marital_status   TEXT
+  city, state, postal_code  TEXT
+  age_years        INTEGER  age today (or at death)
+
+Table: gold_encounter  (one row per encounter/visit)
+Columns:
+  encounter_id, patient_id  TEXT
+  gender, state             TEXT   (patient context, denormalized)
+  class_code                TEXT   e.g. 'AMB' ambulatory, 'IMP' inpatient, 'EMER'
+  encounter_type            TEXT   e.g. 'General examination of patient (procedure)',
+                                   'Urgent care clinic (procedure)', 'Encounter for problem',
+                                   'Well child visit (procedure)', 'Prenatal visit'
+  start_date, end_date      TEXT   ISO dates
+  length_of_stay_days       INTEGER
+  age_at_encounter          INTEGER
+
+Table: gold_condition  (one row per diagnosis; SNOMED coded)
+Columns:
+  condition_id, patient_id, encounter_id  TEXT
+  code_system      TEXT   'SNOMED'
+  code             TEXT   SNOMED code
+  condition_name   TEXT   e.g. 'Hypertension', 'Prediabetes', 'Anemia (disorder)',
+                          'Body mass index 30+ - obesity (finding)', 'Viral sinusitis (disorder)',
+                          'Acute bronchitis (disorder)', 'Normal pregnancy', 'Otitis media'
+  clinical_status  TEXT   'active' | 'resolved'
+  is_active        BOOLEAN
+  onset_date, abatement_date  TEXT
+  gender, state    TEXT
+  age_at_onset     INTEGER
+
+Table: gold_observation  (one row per NUMERIC measurement; LOINC coded)
+Columns:
+  observation_id, patient_id, encounter_id  TEXT
+  category         TEXT   e.g. 'vital-signs', 'laboratory'
+  code_system      TEXT   'LOINC'
+  code             TEXT   LOINC code
+  measure_name     TEXT   e.g. 'Body Mass Index', 'Body Weight', 'Body Height', 'Glucose',
+                          'Creatinine', 'Sodium', 'Potassium', 'Calcium', 'Chloride',
+                          'Urea Nitrogen', 'Carbon Dioxide',
+                          'Pain severity - 0-10 verbal numeric rating [Score] - Reported'
+  value_num        DOUBLE  the measured value
+  value_unit       TEXT
+  effective_date   TEXT
+  gender, state    TEXT
+  age_at_observation INTEGER
+
+Table: gold_medication  (one row per medication order; RxNorm coded)
+Columns:
+  medication_request_id, patient_id, encounter_id  TEXT
+  code_system      TEXT   'RxNorm'
+  code             TEXT
+  medication_name  TEXT
+  status, intent   TEXT
+  authored_date    TEXT
+  dosage_text      TEXT
+  gender, state    TEXT
+
+Table: gold_procedure  (one row per procedure; SNOMED coded)
+Columns:
+  procedure_id, patient_id, encounter_id  TEXT
+  code_system      TEXT   'SNOMED'
+  code             TEXT
+  procedure_name   TEXT
+  status           TEXT
+  performed_date   TEXT
+  gender, state    TEXT
+
+Notes:
+  - Join on patient_id and encounter_id.
+  - condition_name / measure_name are free-text displays: match them exactly as
+    listed above, or use LIKE for partial matches.
+  - Dates are ISO strings; CAST to DATE for date arithmetic.
+"""
+
+SCHEMA_DOC_HOSPITAL = """\
 Table: gold_hospital_profile  (one row per hospital, Northeast/Mid-Atlantic states)
 Columns:
   facility_id              TEXT   CMS certification number
@@ -131,6 +219,12 @@ Columns:
   ed_left_before_seen_pct  DOUBLE percent of ED patients who left before being seen (lower is better)
   ed_volume                DOUBLE often NULL (source is a text bucket)
 """
+
+# Which schema the planner describes. Set PLANNER_SCHEMA=fhir to point the agent
+# at the clinical dataset. Must match the db_path the analytics tool is using.
+_SCHEMAS = {"hospital": SCHEMA_DOC_HOSPITAL, "fhir": SCHEMA_DOC_FHIR}
+SCHEMA_DOC = _SCHEMAS.get(os.environ.get("PLANNER_SCHEMA", "hospital").lower(),
+                          SCHEMA_DOC_HOSPITAL)
 
 SYSTEM_PROMPT = f"""You are a careful healthcare analytics SQL writer. You translate a question \
 into ONE DuckDB SQL SELECT statement against the schema below.
