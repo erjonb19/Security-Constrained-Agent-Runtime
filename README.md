@@ -1,100 +1,213 @@
 # Governed Clinical Agent
 
-A governed natural-language analytics agent for healthcare data. You ask a question in plain English; a language model writes the SQL; and a capability-based security runtime decides whether that SQL is allowed to run before it ever touches the database. The model proposes, the guardrails dispose. It runs today over real CMS Medicare data, behind an HTTP API, with the full authorization decision returned in every response.
+A governed natural-language analytics agent for healthcare data. You ask a question in plain English; a language model writes the SQL; and a capability-based security runtime decides whether that SQL is allowed to run before it ever touches the database. The model proposes, the guardrails dispose.
+
+It runs today over two real datasets — CMS hospital quality measures and a 367,000-resource FHIR clinical lakehouse — behind an authenticated HTTP API, with the full authorization decision returned in every response, and a 35-case ground-truth evaluation suite running in CI.
+
+**Live:** https://governed-clinical-agent.onrender.com/docs
 
 ## Why this matters
 
-Healthtech and care-navigation companies want to put an LLM in front of their data so staff and members can ask questions without writing SQL. The blocker is trust: a model can hallucinate a query, reach for a table it should never see, or be steered by a prompt injection into exfiltrating data. In healthcare that is not a bug, it is a compliance incident. Most "AI agent for healthcare data" projects build the chatbot and bolt on governance later, if at all. This one is built the other way around. The governance is the product, and the analytics agent is the proof that it works on real data. The guarantee it offers is simple: the agent can only ever run a read-only, allow-listed, row-capped query, no matter what the model is convinced to write.
+Healthtech and care-navigation companies want to put an LLM in front of their data so staff and members can ask questions without writing SQL. The blocker is trust: a model can hallucinate a query, reach for a table it should never see, or be steered by a prompt injection into exfiltrating data. In healthcare that is not a bug, it is a compliance incident.
 
-## Architecture
+Most "AI agent for healthcare data" projects build the chatbot and bolt on governance later, if at all. This one is built the other way around. The governance is the product; the analytics agent is the proof that it works on real data. The guarantee is simple: the agent can only ever run a read-only, allow-listed, row-capped query against a de-identified view, no matter what the model is convinced to write.
 
-The system is two layers: a reusable security runtime, and a reference application built on top of it.
-
-**The security runtime** mediates every tool call an agent makes through a default-deny policy. Its components:
-
-- **Policy engine** — risk-tiered, default-deny. Capabilities are autonomous, gated (require approval), or denied outright. Defined in `medicare_policy.yaml`.
-- **SQL guard** (`sql_guard.py`) — an AST validator (sqlglot) that is the enforcement seam for agent-written SQL. SELECT-only, Gold-table allowlist, automatic row cap, no stacked statements, no catalog/system schemas, no file-reading functions. Denies fail closed.
-- **Groundedness check** (`groundedness.py`) — verifies that every claim in a generated brief traces back to a real returned row, so the agent cannot state a number it did not retrieve.
-- **Taint tracking** (`src/security/`) — blocks data from a tainted source flowing into a denied sink, the defense against prompt-injection-driven exfiltration.
-- **Audit logger** — every decision (allow / deny / require-approval) is written to JSONL with capability, reason, and latency, the compliance trail.
-
-**The reference application** is a governed CMS Medicare analytics agent:
-
-- **NL-to-SQL planner** (`nl_to_sql_planner.py`) — turns a plain-English question into one DuckDB SELECT against the Gold schema. Provider-agnostic via an OpenAI-compatible client; defaults to Cerebras (`gpt-oss-120b`), one config line to switch to Groq.
-- **Analytics tool** (`analytics_query_tool.py`) — runs the planner's SQL through the guard, then executes the validated query against the Gold lakehouse.
-- **HTTP service** (`app.py`) — FastAPI. Natural-language and raw-SQL endpoints, API-key auth on the data routes, the governance decision returned in every response.
-- **AIOps panel** (`aiops_panel.py`) — a Streamlit dashboard over the audit logs: outcomes by control, denial reasons, latency, decisions over time.
-
-## The data
-
-Built from public CMS data with a two-catalog fetcher (`fetch_cms.py`) and a DuckDB medallion pipeline (`build_hospital_gold.py`):
-
-- **Hospital-profile Gold** (`gold_hospital_profile`) — 750 hospitals across twelve Northeast and Mid-Atlantic states, one row each, joined on CMS facility ID: overall star rating, Medicare spending per beneficiary, five condition-level 30-day readmission rates, and four ED-flow measures including median psychiatric ED wait time.
-- **Geographic Gold** — region-level utilization, cost, and anomaly tables from the CMS Geographic Variation file.
-
-Both are queried through the same guardrails.
+And the claim is measured, not asserted — see [Evaluation](#evaluation).
 
 ## What it looks like
 
 A natural-language request to `/query`:
 
 ```json
-{ "question": "Which hospitals give the best value, high quality and low cost?" }
+{ "question": "For heart failure care coordination, which in-network hospitals should we steer members to, balancing readmission performance against cost?" }
 ```
 
-returns the SQL the model wrote, the SQL the guard actually ran, the decision, and the rows:
+returns the SQL the model wrote, the SQL the guard actually ran, the decision, the rows, and what the call cost:
 
 ```json
 {
   "allowed": true,
   "decided_by": "executed",
-  "safe_sql": "SELECT facility_name, state, star_rating, mspb_score ... LIMIT 15",
+  "safe_sql": "SELECT facility_id, facility_name, state, readmit_hf, mspb_score FROM gold_hospital_profile WHERE ... ORDER BY readmit_hf ASC, facility_id ASC LIMIT 15",
   "row_count": 15,
-  "rows": [ { "facility_name": "NEWTON-WELLESLEY HOSPITAL", "state": "MA", "star_rating": 5, "mspb_score": 0.88 } ]
+  "rows": [ { "facility_name": "CHILTON MEDICAL CENTER", "state": "NJ", "readmit_hf": 15.8, "mspb_score": 1.14 } ],
+  "planner_metrics": {
+    "latency_ms": 800, "total_tokens": 650,
+    "est_cost_usd": 0.000396, "model": "gpt-oss-120b", "provider": "cerebras"
+  }
 }
 ```
 
-A disallowed query, even one that is perfectly valid SQL, is refused at the boundary:
+A disallowed query — even one that is perfectly valid SQL — is refused at the boundary:
 
 ```json
-{ "allowed": false, "decided_by": "guard", "reason": "table not on Gold allowlist: billing_raw" }
+{ "allowed": false, "decided_by": "guard", "reason": "table not on Gold allowlist: bronze_patient" }
 ```
 
-The model is also free to be adversarial. Asked to delete low-rated hospitals or read a PHI table, it never produces a query the guard will run; the guard's enforcement is demonstrated independently against valid-but-disallowed SQL that hits a non-allowlisted table or a system catalog.
+## Architecture
+
+Two layers: a reusable security runtime, and applications built on top of it.
+
+### The security runtime
+
+Mediates every tool call an agent makes through a default-deny policy.
+
+- **Policy engine** — risk-tiered, default-deny. Capabilities are autonomous, gated (require human approval), or denied outright. Defined in `medicare_policy.yaml`.
+- **SQL guard** (`sql_guard.py`) — an AST validator (sqlglot) that is the enforcement seam for agent-written SQL. SELECT-only, table allowlist, automatic row cap, no stacked statements, no catalog/system schemas, no file-reading or catalog-introspection functions. Denies fail closed. Ships with an adversarial test harness.
+- **Groundedness check** (`groundedness.py`) — verifies every claim in a generated brief traces back to a real returned row, so the agent cannot state a number it did not retrieve.
+- **Taint tracking** (`src/security/`) — blocks data from a tainted source flowing into a denied sink; the defense against prompt-injection-driven exfiltration.
+- **Audit logger** — every decision (allow / deny / require-approval) written to JSONL with capability, reason, and latency.
+
+### The agent
+
+- **NL-to-SQL planner** (`nl_to_sql_planner.py`) — turns plain English into one DuckDB SELECT. **Provider-agnostic** via an OpenAI-compatible client: Cerebras, Groq, and Anthropic are configured, switchable with one environment variable. Per-provider cost rates, because a frontier model runs ~7x an open model and a single global rate would misreport spend the moment you switch.
+- **Stateful graph** (`agent_graph.py`) — LangGraph. The agent plans, executes through the guard, and on failure feeds the denial reason back into the next attempt and revises. **Bounded retries** (an unbounded agent loop is a real production failure mode). **Full trajectory capture** — every step, what it cost, how long it took.
+- **Analytics tool** (`analytics_query_tool.py`) — runs the planner's SQL through the guard, then executes the validated query.
+- **Backend-agnostic data layer** (`data_backends.py`) — local DuckDB or Databricks Delta behind one interface, selected by `DATA_BACKEND`. The governance is identical either way.
+
+### Service and observability
+
+- **HTTP service** (`app.py`) — FastAPI. `/health`, `/schema`, `/query` (natural language), `/raw-sql` (guarded SQL), `/metrics` (aggregate cost and latency). API-key auth on the data routes.
+- **Cost tracking** (`cost_tracker.py`) — per-call token counts and estimated cost in every response; aggregate totals, averages, and latency p50/p95 at `/metrics`. Percentiles rather than averages, because the average hides the slow tail.
+- **AIOps panel** (`aiops_panel.py`) — Streamlit over the audit logs: outcomes by control, denial reasons, latency, decisions over time.
+
+## The data
+
+Two lakehouses, queried through identical guardrails.
+
+### CMS hospital quality
+
+Built from the CMS Provider Data Catalog with a two-catalog fetcher (`fetch_cms.py`) and a DuckDB medallion pipeline (`build_hospital_gold.py`).
+
+`gold_hospital_profile` — 750 hospitals across twelve Northeast and Mid-Atlantic states, joined on CMS facility ID: overall star rating, Medicare spending per beneficiary, five condition-level 30-day readmission rates, and four ED-flow measures including median psychiatric ED boarding time. A geographic Gold (region utilization, cost, anomaly) is built by `build_medallion.py`.
+
+### FHIR clinical lakehouse
+
+**367,296 resources** flattened from 1,180 nested Synthea FHIR R4 bundles (`fetch_synthea.py`, `build_fhir_gold.py`).
+
+| Bronze (faithful FHIR) | rows | Gold (curated) | rows |
+|---|---|---|---|
+| `bronze_patient` | 1,180 | `gold_patient` | 1,180 |
+| `bronze_encounter` | 46,868 | `gold_encounter` | 46,868 |
+| `bronze_condition` | 8,766 | `gold_condition` | 8,766 |
+| `bronze_observation` | 259,929 | `gold_observation` | 223,503 |
+| `bronze_procedure` | 36,451 | `gold_procedure` | 36,451 |
+| `bronze_medication_request` | 14,102 | `gold_medication` | 14,102 |
+
+Coded in **SNOMED** (conditions, procedures), **LOINC** (observations), and **RxNorm** (medications).
+
+The engineering is in the flattening, not the data. Real bulk FHIR is deeply nested JSON, and each of these exists because the naive version breaks on it:
+
+- **Reference normalization** — references appear as both `urn:uuid:abc` and `Patient/abc` in the same export. Without normalizing both, half the joins silently miss.
+- **CodeableConcept lifting** — a diagnosis is never a string; it is `code.coding[0].{system,code,display}` with a `text` fallback, and `coding` may be absent or empty.
+- **Polymorphic values** — `Observation.value` is `valueQuantity`, `valueCodeableConcept`, or `valueString`. Real exports mix all three in one table.
+- **Varying cardinality** — `name`, `address`, `category` may be absent, empty, or multiple.
+- **Data-quality gates** — deduplication on primary keys before joining, plus a **fan-out gate** asserting no Gold table exceeds its Bronze source. A duplicate ID silently multiplies rows and corrupts every downstream count; this catches it loudly.
+
+### PHI protection
+
+Only the curated **Gold** views are on the guard's allowlist. The `bronze_*` tables — which carry raw patient names, addresses, and identifiers — are deliberately excluded, even though they sit in the same database. This is the analytics equivalent of querying a de-identified view instead of the source system.
+
+Tested adversarially, including the case that matters most:
+
+```sql
+-- starts in an ALLOWED table, joins to a DENIED one to re-identify patients
+SELECT g.patient_id, b.family_name
+FROM gold_condition g JOIN bronze_patient b ON g.patient_id = b.patient_id
+-- DENIED: table not on Gold allowlist: bronze_patient
+```
+
+A guard that only checked the first table reference would let that through. This one walks every table in the parse tree.
+
+## Evaluation
+
+The correctness claim is measured against ground truth, not asserted.
+
+`eval_bank.py` holds **35 questions across five difficulty tiers**, each paired with hand-written reference SQL. `eval_harness.py` runs every question **three times** (LLM output is non-deterministic; a case that passes 1 of 3 is not passing), scores the agent's answer against the reference for **exact match**, classifies failures into a taxonomy, and writes a timestamped report for regression tracking.
+
+**Measured result — single-shot vs. self-correcting graph:**
+
+| | Single-shot | Graph (self-correcting) |
+|---|---|---|
+| Cases passed | 33/35 (94%) | **35/35 (100%)** |
+| Run-level accuracy | 100/105 (95%) | **104/105 (99%)** |
+| Failure modes | 5 `guard_denied` | 1 `wrong_answer` |
+
+Self-correction fired on 5 of 35 cases; all five recovered.
+
+The honest reading: **every failure it recovered was a transient tool denial, not a reasoning error.** The agent already wrote correct SQL — the hard tier-5 cases (clinical vocabulary, computed differences, subquery comparisons) scored 15/15 in both modes. What self-correction bought is *resilience*, at about 5% more tokens. Retry only helps when there is a failure signal to react to; it would not catch plausible-but-wrong SQL, which is why the ground-truth suite exists too.
+
+Two things the eval framework found that inspection did not: a scoring bug in the harness itself, and non-deterministic ranking in the agent (fixed by requiring a deterministic tie-break, which took tier-3 accuracy from 71% to 100%).
+
+```bash
+python eval_harness.py            # single-shot baseline
+python eval_harness.py --graph    # self-correcting path
+```
+
+## CI
+
+Two GitHub Actions workflows:
+
+- **Quick gate on every push** — a 6-case subset spanning all tiers, ~90 seconds. Fails the build if accuracy drops below threshold.
+- **Full suite nightly** — all 35 cases, 3 runs each.
+
+Fast feedback on every change, complete coverage every night. Reports are uploaded as artifacts.
 
 ## Run it
 
 ```bash
 pip install -r requirements-api.txt
+
 $env:CEREBRAS_API_KEY="..."     # the planner's model
 $env:API_KEY="..."              # require a key on the data endpoints
-uvicorn app:app --port 8000
+
+uvicorn app:app --port 8000     # http://localhost:8000/docs
 ```
 
-Open `http://localhost:8000/docs` for the interactive API. `/health` reports readiness, `/schema` returns the queryable schema, `/query` takes natural language, `/raw-sql` takes guarded SQL.
-
-The governed pipeline can also be exercised directly:
+Other entry points:
 
 ```bash
-python nl_to_sql_planner.py      # NL question -> model SQL -> guard -> rows, plus the guard-enforcement check
-python run_hospital_query.py     # the same four care-navigation queries through the runtime
+python agent_graph.py              # self-correcting agent demo, with trajectory
+python eval_harness.py             # the 35-case ground-truth suite
+python sql_guard.py                # adversarial guard harness (instant, no API calls)
+streamlit run aiops_panel.py       # observability dashboard
+```
+
+Switching provider or dataset:
+
+```bash
+$env:PLANNER_PROVIDER="groq"       # cerebras | groq | anthropic
+$env:PLANNER_SCHEMA="fhir"         # hospital | fhir
+```
+
+Rebuilding the data (both are derived artifacts, not committed):
+
+```bash
+python fetch_cms.py xubh-q36u hospital_general   # (and the other four CMS files)
+python build_hospital_gold.py
+
+python fetch_synthea.py                          # ~85MB of FHIR bundles
+python build_fhir_gold.py                        # ~367k resources
 ```
 
 ## Scope and honest limitations
 
-This is a working reference implementation, described plainly:
+A working reference implementation, described plainly:
 
-- It runs single-instance and serializes queries under a lock. Correct for one instance; horizontal scaling is future work.
-- Auth is enforced when `API_KEY` is set, and the service runs open in dev mode when it is not (flagged loudly at startup and in `/health`). Always set the key before exposing it.
-- The data is public CMS data. There is no PHI here, and the system is not yet hardened for PHI or production load.
-- The Gold is built on demand, not on a schedule. A self-refreshing pipeline is on the roadmap.
+- Single-instance; queries serialized under a lock. Horizontal scaling is future work.
+- Auth is enforced when `API_KEY` is set, and the service runs **open in dev mode** when it is not (flagged loudly at startup and in `/health`). There is **no rate limiting** yet.
+- The data is public CMS data and **synthetic** Synthea patients. There is no real PHI here, and the system is not hardened for PHI or production load. The PHI-protection design is real and tested; the deployment posture is not production-grade.
+- Golds are built on demand, not on a schedule.
+- Cost figures are **estimates** (tokens × a configurable rate), not billing data.
 
 ## Roadmap
 
-- Cloud lift: ADLS Gen2 + Databricks Workflows, repoint the analytics tool at a cloud Gold.
-- Scheduled monthly data refresh via GitHub Actions, turning the pipeline self-maintaining.
-- A thin query UI over the API for non-technical users.
-- Fail-closed auth and per-key rate limiting before any public, sensitive deployment.
+- FHIR eval cases, extending ground truth to clinical questions
+- Human-in-the-loop approval queue as a first-class graph node
+- RAG over CMS measure definitions, so the agent can answer *what a measure means*, not only what its value is
+- Cloud lift: ADLS Gen2 + Databricks Workflows; run the eval suite against both backends to prove parity
+- Scheduled monthly data refresh
+- Rate limiting and fail-closed auth before any public, sensitive deployment
 
 ## License
 
