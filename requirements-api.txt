@@ -6,3 +6,4 @@ sqlglot
 openai
 pyyaml
 langgraph
+langgraph-checkpoint-sqlite

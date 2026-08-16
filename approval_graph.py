@@ -46,7 +46,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
-from nl_to_sql_planner import NLToSQLPlanner
+from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
+import schema_check
 from approval import (ApprovalStore, APPROVE, REJECT, ESCALATE,
                       APPROVE_WITH_EDITS, EXECUTES)
 
@@ -82,8 +83,12 @@ class GovernedApprovalAgent:
         self.capability = capability
         self.runtime = AgentRuntime()
         self.runtime.load_policy(POLICY_PATH)
-        self.runtime.register_tool(AnalyticsQueryTool(db_path=db_path, seed_demo=False))
+        tool = AnalyticsQueryTool(db_path=db_path, seed_demo=False)
+        self.runtime.register_tool(tool)
         self.planner = NLToSQLPlanner()
+        schema_check.verify(SCHEMA_DOC, tool._con,
+                            schema_label=os.environ.get("PLANNER_SCHEMA", "hospital"),
+                            db_label=db_path)
         self.store = ApprovalStore()
         os.makedirs(os.path.dirname(CHECKPOINT_DB) or ".", exist_ok=True)
         # the checkpointer is what makes state outlive the request

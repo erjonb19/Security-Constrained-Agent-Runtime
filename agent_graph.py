@@ -57,7 +57,8 @@ from langgraph.graph import StateGraph, START, END
 
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
-from nl_to_sql_planner import NLToSQLPlanner
+from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
+import schema_check
 
 GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
@@ -92,8 +93,16 @@ class GovernedAgentGraph:
         self.max_attempts = max_attempts
         self.runtime = AgentRuntime()
         self.runtime.load_policy(POLICY_PATH)
-        self.runtime.register_tool(AnalyticsQueryTool(db_path=db_path, seed_demo=False))
+        tool = AnalyticsQueryTool(db_path=db_path, seed_demo=False)
+        self.runtime.register_tool(tool)
         self.planner = NLToSQLPlanner()
+        # Fail loudly if PLANNER_SCHEMA does not match the connected database.
+        # A mismatch makes every query fail against tables that do not exist --
+        # silent, misleading, and it looks like the agent is broken when the
+        # configuration is.
+        schema_check.verify(SCHEMA_DOC, tool._con,
+                            schema_label=os.environ.get("PLANNER_SCHEMA", "hospital"),
+                            db_label=db_path)
         self.graph = self._build()
 
     # ---------------- nodes ----------------
