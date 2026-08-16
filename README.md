@@ -2,7 +2,7 @@
 
 A governed natural-language analytics agent for healthcare data. You ask a question in plain English; a language model writes the SQL; and a capability-based security runtime decides whether that SQL is allowed to run before it ever touches the database. The model proposes, the guardrails dispose.
 
-It runs today over two real datasets — CMS hospital quality measures and a 367,000-resource FHIR clinical lakehouse — behind an authenticated HTTP API, with the full authorization decision returned in every response, and a 35-case ground-truth evaluation suite running in CI.
+It runs today over two real datasets — CMS hospital quality measures and a 367,000-resource FHIR clinical lakehouse — behind an authenticated HTTP API, with the full authorization decision returned in every response, and a 63-case ground-truth evaluation suite running in CI.
 
 **Live:** https://governed-clinical-agent.onrender.com/docs
 
@@ -123,26 +123,54 @@ A guard that only checked the first table reference would let that through. This
 
 The correctness claim is measured against ground truth, not asserted.
 
-`eval_bank.py` holds **35 questions across five difficulty tiers**, each paired with hand-written reference SQL. `eval_harness.py` runs every question **three times** (LLM output is non-deterministic; a case that passes 1 of 3 is not passing), scores the agent's answer against the reference for **exact match**, classifies failures into a taxonomy, and writes a timestamped report for regression tracking.
+**63 questions across two datasets**, each paired with hand-written reference SQL:
+`eval_bank.py` (35 cases, CMS hospital quality) and `eval_bank_fhir.py` (28 cases,
+FHIR clinical). Both span five difficulty tiers, from simple aggregates to
+cross-table clinical reasoning.
 
-**Measured result — single-shot vs. self-correcting graph:**
+`eval_harness.py` runs every question **three times** — LLM output is
+non-deterministic, and a case that passes 1 of 3 is not passing — scores the
+agent's answer against the reference for **exact match**, classifies failures
+into a taxonomy, and writes a timestamped report for regression tracking.
 
-| | Single-shot | Graph (self-correcting) |
+**Measured results — single-shot vs. self-correcting graph:**
+
+| | CMS hospital (35 cases) | FHIR clinical (28 cases) |
 |---|---|---|
-| Cases passed | 33/35 (94%) | **35/35 (100%)** |
-| Run-level accuracy | 100/105 (95%) | **104/105 (99%)** |
-| Failure modes | 5 `guard_denied` | 1 `wrong_answer` |
+| Single-shot | 33/35 cases · 95% runs | 28/28 cases · 98% runs |
+| Graph (self-correcting) | **35/35 cases · 99% runs** | **28/28 cases · 99% runs** |
 
-Self-correction fired on 5 of 35 cases; all five recovered.
+The same finding reproduces on both datasets, which makes it a result rather than
+an anecdote: **self-correction eliminates transient tool failures and cannot
+touch plausible-but-wrong SQL.**
 
-The honest reading: **every failure it recovered was a transient tool denial, not a reasoning error.** The agent already wrote correct SQL — the hard tier-5 cases (clinical vocabulary, computed differences, subquery comparisons) scored 15/15 in both modes. What self-correction bought is *resilience*, at about 5% more tokens. Retry only helps when there is a failure signal to react to; it would not catch plausible-but-wrong SQL, which is why the ground-truth suite exists too.
+The mechanism is the point. Retry only helps when there is a *failure signal* to
+react to. A guard denial produces one — the reason is fed back into the next
+attempt and the agent revises. A query that is wrong but valid produces none: it
+runs, returns rows, and looks successful. Across both runs, every failure
+self-correction recovered was a transient denial; every failure it could not
+recover was a wrong-but-successful query. That is why the ground-truth suite
+exists alongside the retry loop, and why "100% of cases pass" is reported next to
+"99% of runs" rather than instead of it.
 
-Two things the eval framework found that inspection did not: a scoring bug in the harness itself, and non-deterministic ranking in the agent (fixed by requiring a deterministic tie-break, which took tier-3 accuracy from 71% to 100%).
+Some cases exist specifically to test clinical correctness, not just SQL
+correctness. A pair of them ask the same question at different grains — how many
+*records* mention viral sinusitis (1,237) versus how many *distinct patients*
+have it (738). Conflating those is the most common error in clinical analytics;
+the agent gets both right, every run.
+
+Two defects the eval framework found that inspection did not: a scoring bug in
+the harness itself, and non-deterministic ranking in the agent — fixed by
+requiring a deterministic tie-break, which took tier-3 accuracy from 71% to 100%.
 
 ```bash
-python eval_harness.py            # single-shot baseline
-python eval_harness.py --graph    # self-correcting path
+python eval_harness.py                              # hospital, single-shot
+python eval_harness.py --graph                      # hospital, self-correcting
+$env:EVAL_DATASET="fhir"; python eval_harness.py    # clinical
+python validate_fhir_bank.py                        # verify the answer key itself
 ```
+
+Reports for all four runs are committed under `eval_runs/`.
 
 ## CI
 
@@ -202,7 +230,6 @@ A working reference implementation, described plainly:
 
 ## Roadmap
 
-- FHIR eval cases, extending ground truth to clinical questions
 - Human-in-the-loop approval queue as a first-class graph node
 - RAG over CMS measure definitions, so the agent can answer *what a measure means*, not only what its value is
 - Cloud lift: ADLS Gen2 + Databricks Workflows; run the eval suite against both backends to prove parity
