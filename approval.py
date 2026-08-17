@@ -134,6 +134,23 @@ class ApprovalStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def find_by_thread(self, thread_id: str, status: str | None = None) -> Optional[str]:
+        """Most recent approval_id for a thread, optionally filtered by status.
+
+        Used to keep the propose node IDEMPOTENT: LangGraph re-executes a node on
+        resume, and without this the store would mint a duplicate approval record
+        for the same thread every time a decision came in.
+        """
+        q = "SELECT approval_id FROM approvals WHERE thread_id = ?"
+        args: list = [thread_id]
+        if status:
+            q += " AND status = ?"
+            args.append(status)
+        q += " ORDER BY proposed_at DESC LIMIT 1"
+        with self._conn() as con:
+            row = con.execute(q, args).fetchone()
+        return row["approval_id"] if row else None
+
     def decide(self, approval_id: str, decision: str, decided_by: str,
                reason: str | None = None, edited_proposal: str | None = None,
                escalated_to: str | None = None) -> dict:

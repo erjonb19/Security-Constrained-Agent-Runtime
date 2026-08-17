@@ -40,6 +40,8 @@ from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
 import cost_tracker
+from approval import (ApprovalStore, APPROVE, REJECT, ESCALATE,
+                      APPROVE_WITH_EDITS, DECISIONS)
 
 GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
@@ -85,6 +87,17 @@ async def lifespan(app: FastAPI):
     except BaseException as e:  # SystemExit if no API key
         _STATE["planner"] = None
         _STATE["planner_error"] = str(e)
+    # Approval agent is optional: /query and /raw-sql work without it. It needs
+    # the planner (to draft) and the checkpointer (to persist the pause).
+    try:
+        from approval_graph import GovernedApprovalAgent
+        _STATE["approval_agent"] = GovernedApprovalAgent(
+            db_path=GOLD_DB, runtime=runtime, planner=_STATE.get("planner"))
+        _STATE["approval_store"] = _STATE["approval_agent"].store
+    except BaseException as e:
+        _STATE["approval_agent"] = None
+        _STATE["approval_store"] = ApprovalStore()   # queue is still readable
+        _STATE["approval_error"] = str(e)
     yield
     _STATE.clear()
 
@@ -106,6 +119,23 @@ class QueryRequest(BaseModel):
 
 class SqlRequest(BaseModel):
     sql: str = Field(..., examples=["SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10"])
+
+
+class ProposeRequest(BaseModel):
+    question: str = Field(..., examples=["Which hospitals have the worst heart failure readmission rates?"])
+    capability: str = Field("brief.commit", examples=["brief.commit"])
+
+
+class DecisionRequest(BaseModel):
+    """A reviewer's verdict on a pending proposal."""
+    decision: str = Field(..., examples=["approve"],
+                          description="approve | reject | escalate | approve_with_edits")
+    decided_by: str = Field(..., examples=["e.brucaj"])
+    reason: Optional[str] = None
+    edited_proposal: Optional[str] = Field(
+        None, description="required when decision is approve_with_edits")
+    escalated_to: Optional[str] = Field(
+        None, description="required when decision is escalate")
 
 
 class GovernedResponse(BaseModel):
@@ -174,6 +204,8 @@ def health() -> dict:
         "planner_enabled": _STATE.get("planner") is not None,
         "planner_error": _STATE.get("planner_error"),
         "auth_enabled": bool(API_KEY),
+        "approvals_enabled": _STATE.get("approval_agent") is not None,
+        "approval_error": _STATE.get("approval_error"),
     }
 
 
@@ -212,10 +244,79 @@ def metrics() -> dict:
     return cost_tracker.summarize()
 
 
+# ---------------------------------------------------------------------------
+# Human-in-the-loop approval.
+#
+# /propose runs the agent to the checkpoint and RETURNS IMMEDIATELY with a
+# pending id -- the graph state is persisted, not held open on this request.
+# A reviewer later GETs the queue and POSTs a decision, which RESUMES the graph
+# from exactly where it stopped. That is what makes this an approval QUEUE
+# rather than a blocking call.
+# ---------------------------------------------------------------------------
+
+@app.post("/propose", dependencies=[Depends(require_api_key)])
+def propose(req: ProposeRequest) -> dict:
+    """Run the agent until it drafts a consequential action, then pause."""
+    agent = _STATE.get("approval_agent")
+    if agent is None:
+        raise HTTPException(status_code=503,
+                            detail=f"approvals unavailable: {_STATE.get('approval_error')}")
+    with _LOCK:
+        return agent.start(req.question)
+
+
+@app.get("/approvals", dependencies=[Depends(require_api_key)])
+def list_approvals() -> dict:
+    """The review queue: everything awaiting a human decision."""
+    store = _STATE.get("approval_store") or ApprovalStore()
+    return {"pending": store.pending(), "metrics": store.metrics()}
+
+
+@app.get("/approvals/{approval_id}", dependencies=[Depends(require_api_key)])
+def get_approval(approval_id: str) -> dict:
+    store = _STATE.get("approval_store") or ApprovalStore()
+    item = store.get(approval_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"no approval {approval_id}")
+    return item
+
+
+@app.post("/approvals/{approval_id}", dependencies=[Depends(require_api_key)])
+def decide_approval(approval_id: str, req: DecisionRequest) -> dict:
+    """Submit a decision and RESUME the paused graph.
+
+    approve / approve_with_edits -> the action executes
+    reject / escalate            -> it does not
+    """
+    agent = _STATE.get("approval_agent")
+    store = _STATE.get("approval_store") or ApprovalStore()
+    if req.decision not in DECISIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"decision must be one of {sorted(DECISIONS)}")
+    item = store.get(approval_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"no approval {approval_id}")
+    if item["status"] != "pending":
+        raise HTTPException(status_code=409,
+                            detail=f"approval {approval_id} already {item['status']}")
+    if agent is None:
+        raise HTTPException(status_code=503,
+                            detail=f"approvals unavailable: {_STATE.get('approval_error')}")
+    try:
+        with _LOCK:
+            return agent.resume(
+                thread_id=item["thread_id"], decision=req.decision,
+                decided_by=req.decided_by, reason=req.reason,
+                edited_proposal=req.edited_proposal, escalated_to=req.escalated_to)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/")
 def root() -> dict:
     return {
         "service": "Security-Constrained Agent Runtime",
         "docs": "/docs",
-        "endpoints": ["/health", "/schema", "/query", "/raw-sql", "/metrics"],
+        "endpoints": ["/health", "/schema", "/query", "/raw-sql", "/metrics",
+                      "/propose", "/approvals", "/approvals/{id}"],
     }

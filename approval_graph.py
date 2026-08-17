@@ -79,16 +79,32 @@ class ApprovalState(TypedDict, total=False):
 
 
 class GovernedApprovalAgent:
-    def __init__(self, db_path: str = GOLD_DB, capability: str = "brief.commit"):
+    def __init__(self, db_path: str = GOLD_DB, capability: str = "brief.commit",
+                 runtime=None, planner=None):
+        """
+        runtime / planner: pass in an ALREADY-BUILT runtime and planner to share
+        them with a host application.
+
+        Why this matters: the tool registry is process-global -- a capability can
+        only be registered once. When the API server has already registered
+        analytics.query_aggregate for /query, this agent must REUSE that runtime
+        rather than build a second one, or registration raises. Standalone use
+        (running this file directly) still constructs its own.
+        """
         self.capability = capability
-        self.runtime = AgentRuntime()
-        self.runtime.load_policy(POLICY_PATH)
-        tool = AnalyticsQueryTool(db_path=db_path, seed_demo=False)
-        self.runtime.register_tool(tool)
-        self.planner = NLToSQLPlanner()
-        schema_check.verify(SCHEMA_DOC, tool._con,
-                            schema_label=os.environ.get("PLANNER_SCHEMA", "hospital"),
-                            db_label=db_path)
+        if runtime is not None:
+            self.runtime = runtime
+            tool = None
+        else:
+            self.runtime = AgentRuntime()
+            self.runtime.load_policy(POLICY_PATH)
+            tool = AnalyticsQueryTool(db_path=db_path, seed_demo=False)
+            self.runtime.register_tool(tool)
+        self.planner = planner or NLToSQLPlanner()
+        if tool is not None:
+            schema_check.verify(SCHEMA_DOC, tool._con,
+                                schema_label=os.environ.get("PLANNER_SCHEMA", "hospital"),
+                                db_label=db_path)
         self.store = ApprovalStore()
         os.makedirs(os.path.dirname(CHECKPOINT_DB) or ".", exist_ok=True)
         # the checkpointer is what makes state outlive the request
@@ -143,13 +159,26 @@ class GovernedApprovalAgent:
         proposal = (f"Proposed {self.capability} for: {state['question']}\n"
                     f"Evidence: {summary}")
 
-        approval_id = self.store.propose(
-            thread_id=state.get("thread_id", "unknown"),
-            capability=self.capability,
-            question=state["question"],
-            proposal=proposal,
-            evidence=str(rows[:3]),
-        )
+        # IDEMPOTENCY. On resume, LangGraph RE-EXECUTES this node from the top --
+        # that is how interrupt/resume works: the node runs again and interrupt()
+        # returns the decision instead of pausing. Creating the approval record
+        # unconditionally would therefore mint a SECOND record for the same
+        # thread on every resume, corrupting the audit trail and making the
+        # thread->approval lookup ambiguous.
+        #
+        # So: reuse the record this thread already has, if any.
+        thread_id = state.get("thread_id", "unknown")
+        existing = state.get("approval_id") or self.store.find_by_thread(thread_id)
+        if existing:
+            approval_id = existing
+        else:
+            approval_id = self.store.propose(
+                thread_id=thread_id,
+                capability=self.capability,
+                question=state["question"],
+                proposal=proposal,
+                evidence=str(rows[:3]),
+            )
 
         # THE PAUSE. Execution stops here and state is persisted. Whatever is
         # passed to interrupt() is surfaced to the caller as the pending payload.
@@ -228,10 +257,9 @@ class GovernedApprovalAgent:
                reason: str | None = None, edited_proposal: str | None = None,
                escalated_to: str | None = None) -> dict:
         """Record the decision and RESUME the paused graph from where it stopped."""
-        pend = [a for a in self.store.pending() if a["thread_id"] == thread_id]
-        if not pend:
+        approval_id = self.store.find_by_thread(thread_id, status="pending")
+        if not approval_id:
             raise KeyError(f"no pending approval for thread {thread_id}")
-        approval_id = pend[0]["approval_id"]
         record = self.store.decide(approval_id, decision, decided_by,
                                    reason=reason, edited_proposal=edited_proposal,
                                    escalated_to=escalated_to)
