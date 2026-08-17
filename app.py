@@ -32,6 +32,10 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
+from fastapi import Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -52,7 +56,50 @@ CAPABILITY = "analytics.query_aggregate"
 # If unset, the service runs in OPEN dev mode (flagged loudly in /health and at
 # startup). Never deploy publicly without API_KEY set.
 API_KEY = os.environ.get("API_KEY")
+
+# FAIL CLOSED. Running without authentication must be an AFFIRMATIVE act, never
+# the consequence of a missing variable. A misconfiguration should stop the
+# service, not silently disable its access control.
+#
+# The escape hatch exists because local development needs to be frictionless --
+# this is the pattern real systems use (DEBUG=true, ALLOW_INSECURE=1). The
+# property that matters is that disabling security requires someone to SAY SO.
+ALLOW_OPEN_ACCESS = os.environ.get("ALLOW_OPEN_ACCESS", "").lower() in {"1", "true", "yes"}
+if not API_KEY and not ALLOW_OPEN_ACCESS:
+    raise SystemExit(
+        "\nREFUSING TO START: no API_KEY set.\n"
+        "  The data endpoints would be publicly readable.\n"
+        "  Set API_KEY=<secret> to require authentication, or set\n"
+        "  ALLOW_OPEN_ACCESS=true to explicitly run without it (local dev only).\n"
+    )
+
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# RATE LIMITING.
+# In production this belongs at the EDGE -- API gateway, load balancer, Cloudflare
+# -- so abusive traffic is rejected before it consumes application resources.
+# It is implemented here because this deployment has no gateway in front of it,
+# and because the data endpoints call an LLM on every request, so an unthrottled
+# public endpoint is a real cost exposure, not a theoretical one.
+#
+# The limiter is keyed per API KEY (not per IP): the key is the identity that
+# actually maps to a quota, and IPs are shared behind NAT and proxies.
+# storage_uri defaults to in-memory; point it at Redis for multi-instance.
+RATE_LIMIT_QUERY = os.environ.get("RATE_LIMIT_QUERY", "20/minute")   # LLM-backed
+RATE_LIMIT_READ = os.environ.get("RATE_LIMIT_READ", "60/minute")     # cheap reads
+RATE_LIMIT_STORAGE = os.environ.get("RATE_LIMIT_STORAGE", "memory://")
+
+
+def _rate_limit_key(request: Request) -> str:
+    """Identity for the limiter: the API key when present, else the client IP."""
+    key = request.headers.get("X-API-Key")
+    if key:
+        return f"key:{key[:12]}"          # truncated: never log a full secret
+    client = request.client
+    return f"ip:{client.host if client else 'unknown'}"
+
+
+limiter = Limiter(key_func=_rate_limit_key, storage_uri=RATE_LIMIT_STORAGE)
 
 
 def require_api_key(provided: Optional[str] = Security(_api_key_header)) -> None:
@@ -108,6 +155,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# wire the limiter: state, the 429 handler, and the middleware that enforces it
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +256,8 @@ def health() -> dict:
         "planner_enabled": _STATE.get("planner") is not None,
         "planner_error": _STATE.get("planner_error"),
         "auth_enabled": bool(API_KEY),
+        "open_access_override": ALLOW_OPEN_ACCESS,
+        "rate_limits": {"llm_endpoints": RATE_LIMIT_QUERY, "read_endpoints": RATE_LIMIT_READ},
         "approvals_enabled": _STATE.get("approval_agent") is not None,
         "approval_error": _STATE.get("approval_error"),
     }
@@ -215,12 +269,14 @@ def schema() -> dict:
 
 
 @app.post("/raw-sql", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
-def raw_sql(req: SqlRequest) -> dict:
+@limiter.limit(RATE_LIMIT_READ)
+def raw_sql(request: Request, req: SqlRequest) -> dict:
     return run_governed_sql(req.sql)
 
 
 @app.post("/query", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
-def query(req: QueryRequest) -> dict:
+@limiter.limit(RATE_LIMIT_QUERY)
+def query(request: Request, req: QueryRequest) -> dict:
     planner = _STATE.get("planner")
     if planner is None:
         return {
@@ -255,7 +311,8 @@ def metrics() -> dict:
 # ---------------------------------------------------------------------------
 
 @app.post("/propose", dependencies=[Depends(require_api_key)])
-def propose(req: ProposeRequest) -> dict:
+@limiter.limit(RATE_LIMIT_QUERY)
+def propose(request: Request, req: ProposeRequest) -> dict:
     """Run the agent until it drafts a consequential action, then pause."""
     agent = _STATE.get("approval_agent")
     if agent is None:
@@ -266,14 +323,16 @@ def propose(req: ProposeRequest) -> dict:
 
 
 @app.get("/approvals", dependencies=[Depends(require_api_key)])
-def list_approvals() -> dict:
+@limiter.limit(RATE_LIMIT_READ)
+def list_approvals(request: Request) -> dict:
     """The review queue: everything awaiting a human decision."""
     store = _STATE.get("approval_store") or ApprovalStore()
     return {"pending": store.pending(), "metrics": store.metrics()}
 
 
 @app.get("/approvals/{approval_id}", dependencies=[Depends(require_api_key)])
-def get_approval(approval_id: str) -> dict:
+@limiter.limit(RATE_LIMIT_READ)
+def get_approval(request: Request, approval_id: str) -> dict:
     store = _STATE.get("approval_store") or ApprovalStore()
     item = store.get(approval_id)
     if item is None:
@@ -282,7 +341,8 @@ def get_approval(approval_id: str) -> dict:
 
 
 @app.post("/approvals/{approval_id}", dependencies=[Depends(require_api_key)])
-def decide_approval(approval_id: str, req: DecisionRequest) -> dict:
+@limiter.limit(RATE_LIMIT_READ)
+def decide_approval(request: Request, approval_id: str, req: DecisionRequest) -> dict:
     """Submit a decision and RESUME the paused graph.
 
     approve / approve_with_edits -> the action executes

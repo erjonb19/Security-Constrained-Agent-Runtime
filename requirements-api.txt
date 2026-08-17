@@ -7,3 +7,4 @@ openai
 pyyaml
 langgraph
 langgraph-checkpoint-sqlite
+slowapi
