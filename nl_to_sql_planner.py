@@ -46,7 +46,9 @@ PROVIDERS = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
-        "model": "gpt-oss-120b",   # do NOT reintroduce llama-3.3-70b-versatile (deprecated)
+        # Groq namespaces the OpenAI open-weight models under "openai/"; the bare
+        # "gpt-oss-120b" 404s. Do NOT reintroduce llama-3.3-70b-versatile (deprecated).
+        "model": "openai/gpt-oss-120b",
     },
     # xAI (Grok) -- another OpenAI-SDK-compatible endpoint. NOTE: this is xAI
     # (api.x.ai), a DIFFERENT vendor from Groq (api.groq.com). Its key is
