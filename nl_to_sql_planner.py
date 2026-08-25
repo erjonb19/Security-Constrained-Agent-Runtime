@@ -44,7 +44,7 @@ PROVIDERS = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
-        "model": "llama-3.3-70b-versatile",
+        "model": "gpt-oss-120b",   # do NOT reintroduce llama-3.3-70b-versatile (deprecated)
     },
     # Anthropic exposes an OpenAI-SDK-compatible endpoint, so Claude drops into
     # the SAME abstraction with no client-code changes -- the payoff of building

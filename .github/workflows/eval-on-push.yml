@@ -18,11 +18,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
+      # Fail fast with a clear message if the planner key is absent. Without it,
+      # NLToSQLPlanner.__init__ raises SystemExit and the job dies in ~20s with a
+      # cryptic exit 1 that looks like an eval failure but is really a setup gap.
+      - name: Verify required secret is present
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: |
+          if [ -z "$CEREBRAS_API_KEY" ]; then
+            echo "::error title=Missing secret::CEREBRAS_API_KEY is not set for this workflow. The eval planner calls the Cerebras API and cannot run without it. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+          echo "CEREBRAS_API_KEY is present."
 
       - name: Install dependencies
         run: |
@@ -38,7 +51,7 @@ jobs:
 
       - name: Upload eval report
         if: always()              # keep the report even if the gate fails
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: eval-report-quick
           path: eval_runs/
