@@ -221,15 +221,21 @@ def main():
                     help="route through the LangGraph self-correcting agent "
                          "instead of the single-shot planner")
     ap.add_argument("--provider", default=os.environ.get("PLANNER_PROVIDER"),
-                    help="planner LLM provider (e.g. cerebras, groq, anthropic). "
+                    help="planner LLM provider (e.g. cerebras, groq, xai, anthropic). "
                          "Defaults to $PLANNER_PROVIDER, else the planner's built-in "
                          "default. Use this to run against a FALLBACK provider when "
                          "the primary is unavailable (needs that provider's API key).")
+    ap.add_argument("--min-interval", type=float, default=None,
+                    help="minimum seconds between planner API calls (rate-limit "
+                         "pacing for free/low tiers). Also settable via "
+                         "PLANNER_MIN_INTERVAL_SEC.")
     args = ap.parse_args()
     provider = args.provider
     if provider and provider not in PROVIDERS:
         sys.exit(f"unknown --provider '{provider}'. choose from: "
                  f"{', '.join(sorted(PROVIDERS))}")
+    if args.min_interval is not None:
+        os.environ["PLANNER_MIN_INTERVAL_SEC"] = str(args.min_interval)
     runs = args.runs
     # env overrides for CI: EVAL_RUNS sets runs, EVAL_SUBSET=1 runs the quick subset
     if os.environ.get('EVAL_RUNS'):

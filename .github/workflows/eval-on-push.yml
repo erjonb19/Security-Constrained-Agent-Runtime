@@ -27,15 +27,18 @@ jobs:
       # Fail fast with a clear message if the planner key is absent. Without it,
       # NLToSQLPlanner.__init__ raises SystemExit and the job dies in ~20s with a
       # cryptic exit 1 that looks like an eval failure but is really a setup gap.
+      # Fail fast with a clear message if the planner key is absent. Without it,
+      # NLToSQLPlanner.__init__ raises SystemExit and the job dies in ~20s with a
+      # cryptic exit 1 that looks like an eval failure but is really a setup gap.
       - name: Verify required secret is present
         env:
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
-          if [ -z "$CEREBRAS_API_KEY" ]; then
-            echo "::error title=Missing secret::CEREBRAS_API_KEY is not set for this workflow. The eval planner calls the Cerebras API and cannot run without it. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
+          if [ -z "$XAI_API_KEY" ]; then
+            echo "::error title=Missing secret::XAI_API_KEY is not set for this workflow. The eval planner uses the xAI (Grok) provider and cannot run without it. Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
             exit 1
           fi
-          echo "CEREBRAS_API_KEY is present."
+          echo "XAI_API_KEY is present."
 
       - name: Install dependencies
         run: |
@@ -44,7 +47,9 @@ jobs:
 
       - name: Run quick eval (subset)
         env:
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          PLANNER_PROVIDER: "xai"        # eval planner uses xAI (Grok); cerebras/groq stay selectable
+          PLANNER_MIN_INTERVAL_SEC: "2"  # pace calls to stay under provider rate limits
           EVAL_SUBSET: "1"        # harness runs the tagged subset only
           EVAL_RUNS: "1"          # one run per case keeps the gate fast
         # Exit 2 = provider unavailable (402/429/5xx): an infrastructure outage,

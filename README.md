@@ -190,8 +190,12 @@ When the primary provider is down, re-run against a **fallback provider** with
 
 ```bash
 python eval_harness.py --provider groq        # needs GROQ_API_KEY
+python eval_harness.py --provider xai         # needs XAI_API_KEY (xAI/Grok)
 python eval_harness.py --provider anthropic   # needs ANTHROPIC_API_KEY
 ```
+
+For rate-limited free/low tiers, pace calls with `--min-interval <seconds>` (or
+`PLANNER_MIN_INTERVAL_SEC`) to avoid tripping 429s across a full sweep.
 
 ## CI
 
@@ -225,9 +229,13 @@ streamlit run aiops_panel.py       # observability dashboard
 Switching provider or dataset:
 
 ```bash
-$env:PLANNER_PROVIDER="groq"       # cerebras | groq | anthropic
+$env:PLANNER_PROVIDER="xai"        # cerebras | groq | xai | anthropic
 $env:PLANNER_SCHEMA="fhir"         # hospital | fhir
+$env:PLANNER_MIN_INTERVAL_SEC="4"  # optional: pace calls for free/low-tier rate limits
 ```
+
+Note: `xai` is xAI/Grok (`api.x.ai`, `XAI_API_KEY` starting `xai-`), a different
+vendor from `groq` (`api.groq.com`, `GROQ_API_KEY` starting `gsk_`).
 
 Rebuilding the data (both are derived artifacts, not committed):
 

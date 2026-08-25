@@ -26,6 +26,8 @@ from __future__ import annotations
 import os
 import re
 import sys
+import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -45,6 +47,15 @@ PROVIDERS = {
         "base_url": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
         "model": "gpt-oss-120b",   # do NOT reintroduce llama-3.3-70b-versatile (deprecated)
+    },
+    # xAI (Grok) -- another OpenAI-SDK-compatible endpoint. NOTE: this is xAI
+    # (api.x.ai), a DIFFERENT vendor from Groq (api.groq.com). Its key is
+    # XAI_API_KEY and starts with "xai-". xAI does NOT host gpt-oss-120b, so this
+    # uses a Grok model; override the exact model id with $XAI_MODEL if needed.
+    "xai": {
+        "base_url": "https://api.x.ai/v1",
+        "api_key_env": "XAI_API_KEY",
+        "model": os.environ.get("XAI_MODEL", "grok-3"),
     },
     # Anthropic exposes an OpenAI-SDK-compatible endpoint, so Claude drops into
     # the SAME abstraction with no client-code changes -- the payoff of building
@@ -74,8 +85,33 @@ PROVIDER_RATES = {
     "cerebras":  {"input": 0.85, "output": 0.85},
     "groq":      {"input": 0.59, "output": 0.79},
     "anthropic": {"input": 3.00, "output": 15.00},
+    "xai":       {"input": 3.00, "output": 15.00},   # grok-3 estimate
 }
 _DEFAULT_RATE = {"input": 1.00, "output": 1.00}
+
+
+# --- optional call pacing --------------------------------------------------
+# Free/low tiers cap requests-per-minute and tokens-per-minute. When
+# PLANNER_MIN_INTERVAL_SEC is set, enforce at least that many seconds between
+# planner API calls (process-wide) so an eval sweep does not trip 429s. It lives
+# at the planner so it also paces the graph's self-correction retries, not just
+# the top-level eval loop.
+_pace_lock = threading.Lock()
+_last_call_ts = [0.0]
+
+
+def _pace_call() -> None:
+    try:
+        interval = float(os.environ.get("PLANNER_MIN_INTERVAL_SEC", "0") or 0)
+    except ValueError:
+        interval = 0.0
+    if interval <= 0:
+        return
+    with _pace_lock:
+        wait = interval - (time.monotonic() - _last_call_ts[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_ts[0] = time.monotonic()
 
 
 class CallMetrics:
@@ -279,6 +315,7 @@ class NLToSQLPlanner:
         LLM cost: read tokens from the response, multiply by a configurable rate.
         """
         import time
+        _pace_call()                     # respect provider rate limits, if configured
         t0 = time.perf_counter()
         resp = self._client.chat.completions.create(
             model=self._model,
