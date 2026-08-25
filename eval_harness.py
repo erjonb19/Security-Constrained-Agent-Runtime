@@ -110,8 +110,13 @@ def _is_provider_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     if re.search(r"error code:\s*(402|408|425|429|5\d\d)", msg):
         return True
+    # Billing/quota failures are availability problems, not accuracy regressions,
+    # even when a provider returns them as 403 (e.g. xAI: "team doesn't have any
+    # credits or licenses yet") rather than 402. A bare permission/model-access
+    # 403 with none of these terms stays a real error (a config bug to fix).
     return any(s in msg for s in (
         "payment required", "insufficient", "quota", "rate limit",
+        "credit", "license", "billing", "no active subscription",
         "service unavailable", "bad gateway", "gateway timeout",
         "overloaded", "connection error", "timed out",
     ))
@@ -384,7 +389,7 @@ def main():
         print("\n" + "!" * 64)
         print("PROVIDER UNAVAILABLE -- eval INCONCLUSIVE (not an accuracy regression)")
         print(f"  {provider_error_runs}/{total_runs} runs failed with a provider/infra "
-              f"error (402/429/5xx/network)")
+              f"error (402/403-no-credits/429/5xx/network)")
         print(f"  provider: {planner.provider} ({planner._model})")
         if provider_error_sample:
             print(f"  sample:   {provider_error_sample[:80]}")

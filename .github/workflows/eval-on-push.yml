@@ -61,7 +61,7 @@ jobs:
           code=$?
           set -e
           if [ "$code" -eq 2 ]; then
-            echo "::warning title=Provider unavailable::Eval inconclusive -- the LLM provider returned 402/429/5xx for most runs. This is NOT an accuracy regression. Re-run when the provider recovers, or run against a fallback provider (see README)."
+            echo "::warning title=Provider unavailable::Eval inconclusive -- the LLM provider was unavailable for most runs (402/403-no-credits/429/5xx). This is NOT an accuracy regression. Fund/switch the provider, or run against a fallback provider (see README)."
             exit 0
           fi
           exit $code
