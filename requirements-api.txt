@@ -9,3 +9,4 @@ langgraph
 langgraph-checkpoint-sqlite
 slowapi
 python-dotenv
+# databricks-sql-connector   # only when DATA_BACKEND=databricks (cloud lift; untested)

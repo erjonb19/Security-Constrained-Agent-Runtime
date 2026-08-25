@@ -217,6 +217,18 @@ $env:API_KEY="..."              # require a key on the data endpoints
 uvicorn app:app --port 8000     # http://localhost:8000/docs
 ```
 
+Then open **http://localhost:8000/ui** — a self-contained web UI to ask questions
+(or run SQL) and see the decision, the SQL the guard ran, the rows, and the cost.
+The API's Swagger docs remain at `/docs`.
+
+To run against Databricks instead of local DuckDB (cloud lift — **wired but
+untested**, needs `pip install databricks-sql-connector`):
+
+```bash
+$env:DATA_BACKEND="databricks"
+$env:DATABRICKS_SERVER_HOSTNAME="..."; $env:DATABRICKS_HTTP_PATH="..."; $env:DATABRICKS_TOKEN="..."
+```
+
 Other entry points:
 
 ```bash
