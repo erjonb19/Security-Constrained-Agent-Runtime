@@ -40,6 +40,17 @@ from pydantic import BaseModel, Field
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load a local .env (if present) BEFORE anything reads os.environ, so API_KEY,
+# rate-limit settings, and planner provider/keys can come from .env in dev. This
+# runs before the project imports below, several of which read env at import time
+# (e.g. the planner's ACTIVE_PROVIDER). Optional dependency: never hard-fail if
+# python-dotenv is not installed.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
