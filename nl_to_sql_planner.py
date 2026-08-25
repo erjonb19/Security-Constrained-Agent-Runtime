@@ -31,6 +31,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load a local .env (if present) before reading os.environ -- so provider keys and
+# PLANNER_* settings work in local/CLI runs. Optional dependency; never hard-fail.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from openai import OpenAI
 
 
