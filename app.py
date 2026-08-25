@@ -33,6 +33,7 @@ from typing import Any, Optional
 from fastapi import Depends, FastAPI, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 from fastapi import Request
+from fastapi.responses import FileResponse, RedirectResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -171,6 +172,24 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# Minimal web UI: a self-contained page (web/index.html) that calls /query and
+# /raw-sql with the same X-API-Key auth. Unauthenticated static page; the data
+# endpoints it calls stay guarded.
+# ---------------------------------------------------------------------------
+_WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+
+
+@app.get("/", include_in_schema=False)
+def _root():
+    return RedirectResponse(url="/ui")
+
+
+@app.get("/ui", include_in_schema=False)
+def _ui():
+    return FileResponse(os.path.join(_WEB_DIR, "index.html"), media_type="text/html")
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Governed Clinical Agent</title>
+<style>
+  :root {
+    --bg:#0f1419; --panel:#171d26; --panel2:#1e2632; --line:#2a3542;
+    --text:#e6edf3; --muted:#8b98a5; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.5; }
+  header { padding:22px 24px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  main { max-width:960px; margin:0 auto; padding:24px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:18px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
+  input, textarea, select {
+    width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px;
+  }
+  textarea { min-height:70px; resize:vertical; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > * { flex:1; min-width:180px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .chip { background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:20px;
+          padding:6px 12px; font-size:12px; cursor:pointer; }
+  .chip:hover { border-color:var(--accent); color:var(--text); }
+  button.run { margin-top:14px; background:var(--accent); color:#fff; border:none; border-radius:8px;
+               padding:11px 20px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.run:disabled { opacity:.5; cursor:default; }
+  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+  .badge.ok { background:rgba(63,185,80,.15); color:var(--ok); border:1px solid rgba(63,185,80,.4); }
+  .badge.bad { background:rgba(248,81,73,.15); color:var(--bad); border:1px solid rgba(248,81,73,.4); }
+  .meta { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--muted); }
+  .meta b { color:var(--text); font-weight:600; }
+  pre { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px;
+        overflow:auto; font-family:var(--mono); font-size:12.5px; margin:12px 0 0; }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
+  .tablewrap { overflow:auto; max-height:420px; border:1px solid var(--line); border-radius:8px; margin-top:12px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .hint { font-size:11px; color:var(--muted); margin-top:6px; }
+  details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); font-size:12px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Governed Clinical Agent</h1>
+  <p>Ask in plain English &mdash; the model writes SQL, the guard decides if it may run. The model proposes, the guardrails dispose.</p>
+</header>
+<main>
+  <div class="card">
+    <div class="row">
+      <div style="flex:2">
+        <label for="apikey">API key <span class="muted">(sent as X-API-Key; stored only in this browser)</span></label>
+        <input id="apikey" type="password" placeholder="your API_KEY (leave blank if server runs open in dev)" />
+      </div>
+      <div>
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="query">Ask a question (/query)</option>
+          <option value="raw-sql">Run SQL directly (/raw-sql)</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <label for="input" id="inputLabel">Question</label>
+      <textarea id="input" placeholder="e.g. Which hospitals give the best value: high quality and low cost?"></textarea>
+      <div class="chips" id="examples"></div>
+    </div>
+    <button class="run" id="runBtn">Run</button>
+    <div class="hint">Endpoints on this service: <a href="/docs" target="_blank">/docs</a> &middot; <a href="/health" target="_blank">/health</a></div>
+  </div>
+
+  <div class="card" id="result" style="display:none"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY_STORE = "gca_api_key";
+$("apikey").value = localStorage.getItem(KEY_STORE) || "";
+$("apikey").addEventListener("change", e => localStorage.setItem(KEY_STORE, e.target.value));
+
+const EXAMPLES = {
+  "query": [
+    "Which hospitals give the best value: high quality and low cost?",
+    "Which facilities have the longest psychiatric ED boarding times?",
+    "List every table in the database",
+  ],
+  "raw-sql": [
+    "SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10",
+    "SELECT * FROM information_schema.tables",
+  ],
+};
+function renderExamples() {
+  const mode = $("mode").value;
+  $("inputLabel").textContent = mode === "raw-sql" ? "SQL" : "Question";
+  $("input").placeholder = mode === "raw-sql"
+    ? "SELECT ... FROM gold_hospital_profile LIMIT 10"
+    : "e.g. Which hospitals give the best value: high quality and low cost?";
+  const box = $("examples"); box.innerHTML = "";
+  EXAMPLES[mode].forEach(ex => {
+    const c = document.createElement("span");
+    c.className = "chip"; c.textContent = ex.length > 60 ? ex.slice(0, 57) + "…" : ex;
+    c.title = ex; c.onclick = () => { $("input").value = ex; };
+    box.appendChild(c);
+  });
+}
+$("mode").addEventListener("change", renderExamples);
+renderExamples();
+
+function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function renderResult(data) {
+  const el = $("result"); el.style.display = "block";
+  const allowed = !!data.allowed;
+  const badge = allowed
+    ? `<span class="badge ok">ALLOWED &middot; ${esc(data.decided_by)}</span>`
+    : `<span class="badge bad">DENIED &middot; ${esc(data.decided_by)}</span>`;
+  let html = badge;
+  if (data.reason) html += `<div class="muted" style="margin-top:10px"><b>Reason:</b> ${esc(data.reason)}</div>`;
+
+  const m = data.planner_metrics;
+  if (m) {
+    html += `<div class="meta">
+      <span><b>${esc(m.provider)}</b> ${esc(m.model)}</span>
+      <span><b>${esc(m.latency_ms)}</b> ms</span>
+      <span><b>${esc(m.total_tokens)}</b> tokens</span>
+      <span><b>$${esc((m.est_cost_usd ?? 0).toFixed ? m.est_cost_usd.toFixed(6) : m.est_cost_usd)}</b> est</span>
+    </div>`;
+  }
+  const sql = data.safe_sql || data.sql;
+  if (sql) html += `<label style="margin-top:16px">SQL the guard ${data.safe_sql ? "ran" : "evaluated"}</label><pre>${esc(sql)}</pre>`;
+
+  if (allowed && data.columns && data.rows) {
+    html += `<label style="margin-top:16px">${esc(data.row_count)} row(s)</label>`;
+    html += `<div class="tablewrap"><table><thead><tr>` +
+      data.columns.map(c => `<th>${esc(c)}</th>`).join("") + `</tr></thead><tbody>` +
+      data.rows.map(r => `<tr>` + data.columns.map(c => `<td>${esc(r[c])}</td>`).join("") + `</tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+  html += `<details><summary>Raw response JSON</summary><pre>${esc(JSON.stringify(data, null, 2))}</pre></details>`;
+  el.innerHTML = html;
+}
+
+async function run() {
+  const mode = $("mode").value;
+  const value = $("input").value.trim();
+  if (!value) return;
+  const btn = $("runBtn"); btn.disabled = true; btn.textContent = "Running…";
+  const el = $("result"); el.style.display = "block"; el.innerHTML = `<span class="muted">Running…</span>`;
+  try {
+    const body = mode === "raw-sql" ? { sql: value } : { question: value };
+    const res = await fetch("/" + mode, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": $("apikey").value },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) { el.innerHTML = `<span class="badge bad">401</span> <span class="muted">Invalid or missing API key.</span>`; return; }
+    if (res.status === 429) { el.innerHTML = `<span class="badge bad">429</span> <span class="muted">Rate limit exceeded &mdash; slow down.</span>`; return; }
+    const data = await res.json();
+    renderResult(data);
+  } catch (e) {
+    el.innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message || e)}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Run";
+  }
+}
+$("runBtn").addEventListener("click", run);
+$("input").addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+</script>
+</body>
+</html>
