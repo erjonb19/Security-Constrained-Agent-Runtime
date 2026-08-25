@@ -12,7 +12,8 @@ Repo: github.com/erjonb19/Security-Constrained-Agent-Runtime
 - **API layer:** FastAPI service, API-key auth
 - **Planner:** LangGraph state graph with bounded self-correction; multi-provider LLM abstraction selectable via `PLANNER_PROVIDER` (Cerebras gpt-oss-120b, Groq gpt-oss-120b, xAI/Grok, Anthropic). CI evals default to Groq (gpt-oss-120b, free tier). Notes: Groq's llama-3.3-70b-versatile is deprecated — do not reintroduce it. `xai` (`api.x.ai`, `XAI_API_KEY` starting `xai-`) is a *different vendor* from `groq` (`api.groq.com`, `GROQ_API_KEY` starting `gsk_`); don't conflate them.
 - **Guard layer:** validates all generated SQL before execution. SELECT-only, table allow-list, row caps, PHI redaction.
-- **Data layer:** backend-agnostic — LocalDuckDBBackend and DatabricksBackend (Databricks lift not yet done; do not claim it works untested)
+- **Data layer:** backend-agnostic — LocalDuckDBBackend and DatabricksBackend. The query path (`AnalyticsQueryTool`) now routes execution through the selected backend (`DATA_BACKEND=databricks` switches to Delta); the guard still validates SQL first. The Databricks path is **wired but UNVERIFIED** — no workspace has been tested against; do not claim it works.
+- **Web UI:** `web/index.html` served at `/ui` (root `/` redirects there) — a self-contained page calling `/query` and `/raw-sql` with `X-API-Key`.
 - **Data:** CMS hospital-quality lakehouse in DuckDB (750 hospitals, 12 states) + FHIR lakehouse from 1,180 Synthea R4 bundles, medallion architecture
 - **Human-in-the-loop:** approval checkpoint with SQLite persistence
 - **Cost/latency tracking:** per-call and aggregate

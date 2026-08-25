@@ -18,6 +18,7 @@ DuckDB/Parquet store and set seed_demo=False.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 import duckdb
@@ -35,6 +36,16 @@ class AnalyticsQueryTool(BaseTool):
         self._con = duckdb.connect(db_path)
         if seed_demo:
             self._seed_demo_gold()
+        # Backend routing (the cloud lift). The local path keeps using self._con
+        # above -- unchanged. Only DATA_BACKEND=databricks swaps execution to run
+        # the SAME guard-approved safe_sql against Delta. The guard still runs
+        # FIRST either way (see execute), so governance is identical.
+        # NOTE: the Databricks path is wired but UNVERIFIED -- no workspace has
+        # been tested against. Requires: pip install databricks-sql-connector.
+        self._backend = None
+        if os.environ.get("DATA_BACKEND", "local").lower() == "databricks":
+            from data_backends import DatabricksBackend
+            self._backend = DatabricksBackend()
 
     @property
     def name(self) -> str:
@@ -55,12 +66,15 @@ class AnalyticsQueryTool(BaseTool):
                 error=f"DENIED by sql_guard: {decision.reason}",
             )
 
-        # Allowed. Run the safe SQL (row cap already applied by the guard).
+        # Allowed. Run the safe SQL (row cap already applied by the guard) through
+        # the configured backend: local DuckDB by default, Databricks when set.
         try:
-            cur = self._con.execute(decision.safe_sql)
-            cols = [d[0] for d in cur.description] if cur.description else []
-            raw = cur.fetchall()
-            rows = [dict(zip(cols, r)) for r in raw]
+            if self._backend is not None:
+                cols, rows = self._backend.execute(decision.safe_sql)
+            else:
+                cur = self._con.execute(decision.safe_sql)
+                cols = [d[0] for d in cur.description] if cur.description else []
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
             # Record real rows for groundedness verification (before redaction).
             query_id = self._ledger.record(cols, rows) if self._ledger is not None else None
