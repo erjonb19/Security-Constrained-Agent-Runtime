@@ -222,9 +222,14 @@ Then open **http://localhost:8000/ui** — a self-contained web UI to ask questi
 The API's Swagger docs remain at `/docs`.
 
 To run against Databricks instead of local DuckDB (cloud lift — **wired but
-untested**, needs `pip install databricks-sql-connector`):
+untested**, needs `pip install databricks-sql-connector`). First publish the Gold
+into Delta (Databricks **Free Edition** has a serverless SQL warehouse and works
+for this — full setup is in the script header):
 
 ```bash
+python scripts/publish_gold_to_databricks.py --db medallion/hospital_gold.duckdb
+# --dry-run previews the SQL without connecting; --max-rows N does a smoke load
+
 $env:DATA_BACKEND="databricks"
 $env:DATABRICKS_SERVER_HOSTNAME="..."; $env:DATABRICKS_HTTP_PATH="..."; $env:DATABRICKS_TOKEN="..."
 ```
