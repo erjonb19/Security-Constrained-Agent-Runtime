@@ -20,7 +20,11 @@ Output:
 
 Run from the repo root with the planner key set:
     python eval_harness.py
-    python eval_harness.py --runs 5        # more rigorous
+    python eval_harness.py --runs 5           # more rigorous
+    python eval_harness.py --provider groq    # fallback provider when primary is down
+
+Exit codes: 0 = pass, 1 = accuracy regression, 2 = provider unavailable
+(inconclusive -- e.g. the LLM provider returned 402/429/5xx for most runs).
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -37,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
-from nl_to_sql_planner import NLToSQLPlanner
+from nl_to_sql_planner import NLToSQLPlanner, PROVIDERS
 from data_backends import LocalDuckDBBackend, get_backend
 # Two ground-truth banks, one per dataset. EVAL_DATASET selects which, and it
 # MUST match the database the analytics tool is connected to -- a bank is only
@@ -60,13 +65,61 @@ DEFAULT_RUNS = 3
 THRESHOLD = 0.80          # eval gate: overall accuracy must meet this
 OUT_DIR = "eval_runs"
 
+# When at least this fraction of ALL runs fail with a provider/infrastructure
+# error, the run is inconclusive: the accuracy number is meaningless, so report
+# "provider unavailable" instead of a false accuracy regression.
+PROVIDER_OUTAGE_FRACTION = 0.5
+
+# Exit codes -- distinct so CI can tell a real regression from an infra outage.
+EXIT_OK = 0
+EXIT_REGRESSION = 1
+EXIT_PROVIDER_UNAVAILABLE = 2
+
 # failure taxonomy
 F_CORRECT = "correct"
 F_WRONG_ANSWER = "wrong_answer"       # ran fine, result disagrees with reference
 F_MISSING_KEY = "missing_key_column"  # agent didn't return the column asked for
 F_GUARD_DENIED = "guard_denied"       # guard rejected the SQL
 F_SQL_ERROR = "sql_error"             # SQL ran but errored (bad column, etc.)
-F_MODEL_ERROR = "model_error"         # planner/model call failed
+F_MODEL_ERROR = "model_error"         # planner/model call failed (genuine logic error)
+F_PROVIDER_ERROR = "provider_error"   # infra: 402/429/5xx, network, timeout -- NOT a regression
+
+# Infrastructure/transport failures. A planner call that dies for one of these
+# reasons tells us nothing about agent accuracy, so it must be scored apart from
+# a real regression (a wrong or guard-denied answer).
+_PROVIDER_STATUS_CODES = {402, 408, 425, 429, 500, 502, 503, 504}
+_PROVIDER_EXC_NAMES = {
+    "RateLimitError", "InternalServerError", "APITimeoutError",
+    "APIConnectionError", "APIStatusError",
+}
+
+
+def _is_provider_error(exc: Exception) -> bool:
+    """True when a planner call failed for an infrastructure reason -- payment
+    (402), rate limit (429), server (5xx), network, or timeout -- rather than a
+    genuine model/planner logic error (e.g. a 400 bad request).
+
+    Checks, in order: an SDK status_code, the exception class name, then a
+    message sniff as a last resort so it still works if the error is wrapped.
+    """
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and (status in _PROVIDER_STATUS_CODES or status >= 500):
+        return True
+    if type(exc).__name__ in _PROVIDER_EXC_NAMES:
+        return True
+    msg = str(exc).lower()
+    if re.search(r"error code:\s*(402|408|425|429|5\d\d)", msg):
+        return True
+    # Billing/quota failures are availability problems, not accuracy regressions,
+    # even when a provider returns them as 403 (e.g. xAI: "team doesn't have any
+    # credits or licenses yet") rather than 402. A bare permission/model-access
+    # 403 with none of these terms stays a real error (a config bug to fix).
+    return any(s in msg for s in (
+        "payment required", "insufficient", "quota", "rate limit",
+        "credit", "license", "billing", "no active subscription",
+        "service unavailable", "bad gateway", "gateway timeout",
+        "overloaded", "connection error", "timed out",
+    ))
 
 
 def _scalar(rows):
@@ -129,7 +182,8 @@ def run_once(case, runtime, planner) -> tuple[str, str]:
     try:
         sql = planner.generate_sql(case["question"])
     except Exception as e:
-        return F_MODEL_ERROR, str(e)[:120]
+        mode = F_PROVIDER_ERROR if _is_provider_error(e) else F_MODEL_ERROR
+        return mode, str(e)[:120]
     result = runtime.execute_tool(CAPABILITY, {"sql": sql})
     if not getattr(result, "allowed", False):
         reason = getattr(result, "explanation", "") or ""
@@ -154,7 +208,8 @@ def run_once_graph(case, agent):
     try:
         state = agent.run(case["question"])
     except Exception as e:
-        return F_MODEL_ERROR, str(e)[:120], 1
+        mode = F_PROVIDER_ERROR if _is_provider_error(e) else F_MODEL_ERROR
+        return mode, str(e)[:120], 1
     attempts = state.get("attempts", 1)
     if not state.get("allowed"):
         reason = str(state.get("reason") or "denied")
@@ -170,7 +225,22 @@ def main():
     ap.add_argument("--graph", action="store_true",
                     help="route through the LangGraph self-correcting agent "
                          "instead of the single-shot planner")
+    ap.add_argument("--provider", default=os.environ.get("PLANNER_PROVIDER"),
+                    help="planner LLM provider (e.g. cerebras, groq, xai, anthropic). "
+                         "Defaults to $PLANNER_PROVIDER, else the planner's built-in "
+                         "default. Use this to run against a FALLBACK provider when "
+                         "the primary is unavailable (needs that provider's API key).")
+    ap.add_argument("--min-interval", type=float, default=None,
+                    help="minimum seconds between planner API calls (rate-limit "
+                         "pacing for free/low tiers). Also settable via "
+                         "PLANNER_MIN_INTERVAL_SEC.")
     args = ap.parse_args()
+    provider = args.provider
+    if provider and provider not in PROVIDERS:
+        sys.exit(f"unknown --provider '{provider}'. choose from: "
+                 f"{', '.join(sorted(PROVIDERS))}")
+    if args.min_interval is not None:
+        os.environ["PLANNER_MIN_INTERVAL_SEC"] = str(args.min_interval)
     runs = args.runs
     # env overrides for CI: EVAL_RUNS sets runs, EVAL_SUBSET=1 runs the quick subset
     if os.environ.get('EVAL_RUNS'):
@@ -192,13 +262,13 @@ def main():
     runtime = None
     if args.graph:
         from agent_graph import GovernedAgentGraph
-        graph_agent = GovernedAgentGraph(db_path=GOLD_DB)
+        graph_agent = GovernedAgentGraph(db_path=GOLD_DB, provider=provider)
     else:
         runtime = AgentRuntime()
         runtime.load_policy(POLICY_PATH)
         runtime.register_tool(AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False))
     os.environ.setdefault("PLANNER_SCHEMA", _DEFAULT_SCHEMA)
-    planner = NLToSQLPlanner()
+    planner = NLToSQLPlanner(provider=provider) if provider else NLToSQLPlanner()
     ref_backend = LocalDuckDBBackend(GOLD_DB)
 
     # precompute reference answers once
@@ -213,6 +283,7 @@ def main():
     case_results = []
     tier_totals = defaultdict(lambda: [0, 0])   # tier -> [correct_runs, total_runs]
     failure_counts = defaultdict(int)
+    provider_error_sample = ""
     t_start = time.time()
 
     for case in active_cases:
@@ -229,6 +300,8 @@ def main():
             outcomes.append(mode)
             details.append(detail)
             failure_counts[mode] += 1
+            if mode == F_PROVIDER_ERROR and not provider_error_sample:
+                provider_error_sample = detail
             tier_totals[case["tier"]][1] += 1
             if mode == F_CORRECT:
                 tier_totals[case["tier"]][0] += 1
@@ -276,15 +349,30 @@ def main():
     # write timestamped report for regression tracking
     os.makedirs(OUT_DIR, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Decide status BEFORE the gate. If the provider was down for most runs, the
+    # accuracy number is meaningless -- treat the run as inconclusive, not failed.
+    provider_error_runs = failure_counts.get(F_PROVIDER_ERROR, 0)
+    provider_outage = (total_runs > 0 and
+                       provider_error_runs >= PROVIDER_OUTAGE_FRACTION * total_runs)
+    if provider_outage:
+        status = "provider_unavailable"
+    elif run_accuracy >= THRESHOLD:
+        status = "pass"
+    else:
+        status = "fail"
+
     report = {
         "timestamp": stamp,
         "dataset": _DATASET,
         "path": "graph" if args.graph else "single_shot",
         "backend": backend_kind,
+        "provider": planner.provider,
         "model": planner._model,
+        "status": status,
         "runs_per_case": runs,
         "case_pass_rate": round(case_pass_rate, 4),
         "run_accuracy": round(run_accuracy, 4),
+        "provider_error_runs": provider_error_runs,
         "tier_accuracy": {str(t): round(v[0]/v[1], 4) for t, v in sorted(tier_totals.items())},
         "failure_counts": dict(failure_counts),
         "cases": case_results,
@@ -295,10 +383,28 @@ def main():
         json.dump(report, f, indent=2)
     print(f"\nreport -> {path}")
 
+    # Infrastructure outage: report it explicitly and exit with a DISTINCT code so
+    # CI does not mistake a provider failure for an accuracy regression.
+    if provider_outage:
+        print("\n" + "!" * 64)
+        print("PROVIDER UNAVAILABLE -- eval INCONCLUSIVE (not an accuracy regression)")
+        print(f"  {provider_error_runs}/{total_runs} runs failed with a provider/infra "
+              f"error (402/403-no-credits/429/5xx/network)")
+        print(f"  provider: {planner.provider} ({planner._model})")
+        if provider_error_sample:
+            print(f"  sample:   {provider_error_sample[:80]}")
+        print("  The accuracy above is meaningless under an outage and is NOT a gate failure.")
+        print("  Retry when the provider recovers, or run against a fallback provider:")
+        print("    python eval_harness.py --provider groq        # needs GROQ_API_KEY")
+        print("    python eval_harness.py --provider anthropic   # needs ANTHROPIC_API_KEY")
+        print("!" * 64)
+        print("eval gate: SKIPPED (provider unavailable)")
+        sys.exit(EXIT_PROVIDER_UNAVAILABLE)
+
     # eval gate
     gate = "PASS" if run_accuracy >= THRESHOLD else "FAIL"
     print(f"eval gate (>= {THRESHOLD:.0%}): {gate}")
-    sys.exit(0 if run_accuracy >= THRESHOLD else 1)
+    sys.exit(EXIT_OK if run_accuracy >= THRESHOLD else EXIT_REGRESSION)
 
 
 if __name__ == "__main__":

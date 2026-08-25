@@ -89,13 +89,14 @@ class AgentState(TypedDict, total=False):
 class GovernedAgentGraph:
     """Builds and runs the stateful agent graph over the governed runtime."""
 
-    def __init__(self, db_path: str = GOLD_DB, max_attempts: int = MAX_ATTEMPTS):
+    def __init__(self, db_path: str = GOLD_DB, max_attempts: int = MAX_ATTEMPTS,
+                 provider: Optional[str] = None):
         self.max_attempts = max_attempts
         self.runtime = AgentRuntime()
         self.runtime.load_policy(POLICY_PATH)
         tool = AnalyticsQueryTool(db_path=db_path, seed_demo=False)
         self.runtime.register_tool(tool)
-        self.planner = NLToSQLPlanner()
+        self.planner = NLToSQLPlanner(provider=provider) if provider else NLToSQLPlanner()
         # Fail loudly if PLANNER_SCHEMA does not match the connected database.
         # A mismatch makes every query fail against tables that do not exist --
         # silent, misleading, and it looks like the agent is broken when the
