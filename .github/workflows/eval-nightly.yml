@@ -66,10 +66,13 @@ jobs:
           name: eval-report-nightly
           path: eval_runs/
 
-  # Second dataset: the 28-case FHIR clinical suite. Runs in parallel with the
-  # hospital job. Its Gold DB is a derived artifact (gitignored), so this job
-  # builds it from the Synthea source, cached so we don't refetch every night.
+  # Second dataset: the 28-case FHIR clinical suite. Runs AFTER the hospital job
+  # (needs: full-eval) -- both share one Groq free-tier key, and running them in
+  # parallel doubles the request rate and trips 429s despite per-process pacing.
+  # Its Gold DB is a derived artifact (gitignored), so this job builds it from the
+  # Synthea source, cached so we don't refetch every night.
   fhir-eval:
+    needs: full-eval
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
