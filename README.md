@@ -229,9 +229,9 @@ streamlit run aiops_panel.py       # observability dashboard
 Switching provider or dataset:
 
 ```bash
-$env:PLANNER_PROVIDER="xai"        # cerebras | groq | xai | anthropic
-$env:PLANNER_SCHEMA="fhir"         # hospital | fhir
-$env:PLANNER_MIN_INTERVAL_SEC="4"  # optional: pace calls for free/low-tier rate limits
+$env:PLANNER_PROVIDER="groq"        # cerebras | groq | xai | anthropic
+$env:PLANNER_SCHEMA="fhir"          # hospital | fhir
+$env:PLANNER_MIN_INTERVAL_SEC="12"  # pace calls for free/low-tier rate limits (Groq free tier ~8K TPM)
 ```
 
 Note: `xai` is xAI/Grok (`api.x.ai`, `XAI_API_KEY` starting `xai-`), a different
