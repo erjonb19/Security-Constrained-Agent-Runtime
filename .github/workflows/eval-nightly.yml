@@ -65,3 +65,76 @@ jobs:
         with:
           name: eval-report-nightly
           path: eval_runs/
+
+  # Second dataset: the 28-case FHIR clinical suite. Runs in parallel with the
+  # hospital job. Its Gold DB is a derived artifact (gitignored), so this job
+  # builds it from the Synthea source, cached so we don't refetch every night.
+  fhir-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Verify required secret is present
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::error title=Missing secret::GROQ_API_KEY is not set for this workflow. The eval planner uses the Groq provider (gpt-oss-120b) and cannot run without it."
+            exit 1
+          fi
+          echo "GROQ_API_KEY is present."
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt
+
+      # Cache the Synthea download + built Gold so we don't refetch hundreds of
+      # MB nightly. The key is tied to the build scripts, so it rebuilds only when
+      # fetch/build logic changes.
+      - name: Cache FHIR Gold
+        id: fhir-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/synthea
+            medallion/fhir_gold.duckdb
+          key: fhir-gold-${{ hashFiles('fetch_synthea.py', 'build_fhir_gold.py') }}
+
+      - name: Build FHIR Gold (on cache miss)
+        if: steps.fhir-cache.outputs.cache-hit != 'true'
+        run: |
+          python fetch_synthea.py
+          python build_fhir_gold.py
+
+      - name: Run FHIR eval (28 cases, 3 runs each)
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PLANNER_PROVIDER: "groq"           # Groq gpt-oss-120b; cerebras/xai selectable
+          PLANNER_MIN_INTERVAL_SEC: "12"     # Groq free tier ~8K TPM is the binding limit
+          EVAL_DATASET: "fhir"               # select the FHIR bank + fhir_gold.duckdb
+          PLANNER_SCHEMA: "fhir"             # must be set in env (planner reads it at import)
+          EVAL_RUNS: "3"
+        # Exit 2 = provider unavailable -> warn, don't fail (see hospital job).
+        run: |
+          set +e
+          python eval_harness.py --runs 3
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo "::warning title=Provider unavailable::FHIR eval inconclusive -- provider unavailable (402/403-no-credits/429/5xx). NOT an accuracy regression."
+            exit 0
+          fi
+          exit $code
+
+      - name: Upload FHIR eval report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: eval-report-fhir-nightly
+          path: eval_runs/

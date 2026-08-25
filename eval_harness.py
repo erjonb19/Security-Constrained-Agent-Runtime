@@ -40,6 +40,13 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load a local .env (if present) before reading os.environ. Optional dependency.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner, PROVIDERS

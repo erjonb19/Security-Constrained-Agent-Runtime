@@ -53,6 +53,13 @@ from typing import Any, Optional, TypedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load a local .env (if present) before reading os.environ. Optional dependency.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from langgraph.graph import StateGraph, START, END
 
 from src.runtime.agent_runtime import AgentRuntime
