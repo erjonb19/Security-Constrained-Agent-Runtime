@@ -167,10 +167,31 @@ requiring a deterministic tie-break, which took tier-3 accuracy from 71% to 100%
 python eval_harness.py                              # hospital, single-shot
 python eval_harness.py --graph                      # hospital, self-correcting
 $env:EVAL_DATASET="fhir"; python eval_harness.py    # clinical
+python eval_harness.py --provider groq              # fallback when primary is down
 python validate_fhir_bank.py                        # verify the answer key itself
 ```
 
 Reports for all four runs are committed under `eval_runs/`.
+
+**Infrastructure failures vs. accuracy regressions.** The harness distinguishes
+the two so a provider outage never looks like the agent getting worse. If most
+runs fail with a provider/infra error — payment (402), rate limit (429), 5xx,
+network, or timeout — the run is reported as **provider unavailable** and exits
+with a distinct code, rather than a false 0% accuracy regression:
+
+| exit code | meaning |
+|---|---|
+| `0` | pass (accuracy ≥ threshold) |
+| `1` | accuracy regression — a real failure to investigate |
+| `2` | provider unavailable — inconclusive, not a regression |
+
+When the primary provider is down, re-run against a **fallback provider** with
+`--provider` (or `PLANNER_PROVIDER`); it needs that provider's API key set:
+
+```bash
+python eval_harness.py --provider groq        # needs GROQ_API_KEY
+python eval_harness.py --provider anthropic   # needs ANTHROPIC_API_KEY
+```
 
 ## CI
 

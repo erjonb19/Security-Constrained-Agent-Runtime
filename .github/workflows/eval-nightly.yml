@@ -43,7 +43,19 @@ jobs:
         env:
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           EVAL_RUNS: "3"
-        run: python eval_harness.py --runs 3
+        # Exit 2 = provider unavailable (402/429/5xx). That is an infrastructure
+        # outage, not an accuracy regression, so surface it as a warning instead
+        # of failing the build. Exit 1 (real regression) still fails.
+        run: |
+          set +e
+          python eval_harness.py --runs 3
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo "::warning title=Provider unavailable::Eval inconclusive -- the LLM provider returned 402/429/5xx for most runs. This is NOT an accuracy regression. Re-run when the provider recovers, or run against a fallback provider (see README)."
+            exit 0
+          fi
+          exit $code
 
       - name: Upload eval report
         if: always()

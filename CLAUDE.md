@@ -31,6 +31,8 @@ Repo: github.com/erjonb19/Security-Constrained-Agent-Runtime
    - 35-case hospital eval: `python eval_harness.py`
    - 28-case FHIR eval: `$env:EVAL_DATASET="fhir"; python eval_harness.py`  (PowerShell; bash: `EVAL_DATASET=fhir python eval_harness.py`)
    - Add `--graph` to run through the self-correcting LangGraph path instead of single-shot. Env knobs: `EVAL_RUNS=N`, `EVAL_SUBSET=1` (quick tagged subset). Gate threshold is run-level accuracy ≥ 80% (`THRESHOLD` in `eval_harness.py`).
+   - **Exit codes distinguish infra from regression:** `0` pass, `1` accuracy regression (real — investigate), `2` provider unavailable (inconclusive — the LLM provider returned 402/429/5xx for most runs; NOT a regression). Don't "fix" a code-2 run by touching eval cases — it means the provider was down.
+   - **Fallback provider:** when the primary (Cerebras) is unavailable, run against a fallback with `--provider groq` or `--provider anthropic` (or set `PLANNER_PROVIDER`); each needs that provider's API key. Do not reintroduce the deprecated Groq `llama-3.3-70b-versatile` model.
 3. All evals must pass ground-truth validation. If a case fails, fix or explain — never lower the threshold or delete the case to pass.
 4. CI runs on push and nightly (`.github/workflows/eval-on-push.yml`, `eval-nightly.yml`). ⚠️ CI currently runs **only the hospital eval gate** (on-push: `EVAL_SUBSET=1`, `EVAL_RUNS=1`; nightly: `--runs 3`) — it does **not** run `pytest` and does **not** run the FHIR eval. Run those two locally before reporting done; a task is not complete if the CI eval gate would fail.
 
