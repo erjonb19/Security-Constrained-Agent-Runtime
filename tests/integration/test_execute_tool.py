@@ -367,11 +367,20 @@ class TestInjectionDetectionBlock:
 
 class TestToolExecutionErrors:
     def test_tool_error_returns_result_with_failure(self, policy_yaml_path: Path) -> None:
+        """A tool failure is reported FAIL-CLOSED: allowed is False.
+
+        `allowed` is the runtime's single go/no-go channel, not "the policy said
+        yes". Guard denials (e.g. sql_guard) surface as a failed ToolResult, so if
+        a tool failure reported allowed=True, any caller checking only `.allowed`
+        would treat a guard-DENIED operation as permitted. The failed ToolResult is
+        still attached so callers can distinguish policy denial from execution
+        failure via `result.result`.
+        """
         rt = _runtime_with_policy(policy_yaml_path)
         tool = _FailTool("git")
         rt.register_tool(tool)
         result = rt.execute_tool("git", {"args": ["status"]})
-        assert result.allowed is True
+        assert result.allowed is False
         assert result.result is not None
         assert result.result.success is False
 

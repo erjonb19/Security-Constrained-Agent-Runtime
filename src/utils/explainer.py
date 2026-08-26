@@ -99,7 +99,10 @@ def get_explanation(decision: Any, capability: str, parameters: dict[str, Any], 
     """
     safe_params = redact_data(parameters or {})
     reason = redact_text(getattr(decision, "reason", "Operation was denied by policy."))
-    details = getattr(decision, "details", None) or {}
+    # Redact details too: they are echoed into the explanation, and a denial on a
+    # sensitive path (e.g. /workspace/secrets/.env) would otherwise leak that path
+    # back to the caller -- the exact value the denial was protecting.
+    details = redact_data(getattr(decision, "details", None) or {})
 
     if getattr(decision, "allowed", False):
         if getattr(decision, "needs_approval", False):
@@ -115,6 +118,15 @@ def get_explanation(decision: Any, capability: str, parameters: dict[str, Any], 
         f"Reason: {reason}",
     ]
 
+    # Check the REASON first. An approval-required denial often still carries a
+    # path/url parameter; without this ordering it would be misreported as a
+    # path-constraint denial, sending the caller to fix the wrong thing.
+    reason_lower = reason.lower()
+    if "approval required" in reason_lower:
+        lines.append("Constraint: operation requires human approval before execution.")
+        lines.append("Next step: request approval and retry the action.")
+        return "\n".join(lines)
+
     if "path" in details or "path" in safe_params:
         path_value = str(details.get("path") or safe_params.get("path") or "<path>")
         lines.append(f"Constraint: Requested path is outside allowed policy paths ({path_value}).")
@@ -129,12 +141,6 @@ def get_explanation(decision: Any, capability: str, parameters: dict[str, Any], 
         lines.append("Suggested policy snippet:")
         lines.append(_build_endpoint_snippet(policy, capability, endpoint))
         lines.append("Safe alternative: use a currently allow-listed HTTPS endpoint.")
-        return "\n".join(lines)
-
-    reason_lower = reason.lower()
-    if "approval required" in reason_lower:
-        lines.append("Constraint: operation requires human approval before execution.")
-        lines.append("Next step: request approval and retry the action.")
         return "\n".join(lines)
 
     if "explicitly denied" in reason_lower:

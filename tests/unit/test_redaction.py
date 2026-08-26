@@ -27,7 +27,17 @@ class TestRedactData:
         assert isinstance(out["items"], list)
         assert isinstance(out["pair"], tuple)
         assert out["items"][1]["token"] == REDACTED
-        assert "Bearer [REDACTED]" in out["pair"][0]
+        # The whole Authorization header VALUE is masked (stronger than masking
+        # only the token after "Bearer"), so the secret must not survive.
+        assert out["pair"][0] == f"Authorization: {REDACTED}"
+        assert "SUPERSECRET" not in out["pair"][0]
+        assert out["pair"][1] == "ok"
+
+    def test_redacts_bare_bearer_token(self) -> None:
+        """A bearer token OUTSIDE an Authorization header is still redacted."""
+        out = redact_data({"note": "use Bearer SUPERSECRETVALUE123 to call it"})
+        assert "Bearer [REDACTED]" in out["note"]
+        assert "SUPERSECRETVALUE123" not in out["note"]
 
     def test_redacts_path_indicators(self) -> None:
         data = {"path": r"C:\Users\alice\.ssh\id_rsa"}
