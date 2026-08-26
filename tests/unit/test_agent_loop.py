@@ -111,12 +111,16 @@ class TestCheckPromptAgainstPolicy:
         assert allowed is True
         assert "Prompt allowed" in msg
 
+    # NOTE: use a POSIX path. A Windows path ("C:\\...") is only recognised as a
+    # path on Windows, so these assertions silently passed locally but failed on
+    # Linux CI, where the string was never treated as a path at all. /etc/passwd is
+    # extracted and denied on BOTH platforms, so the deny is genuinely exercised.
+    DENIED_PATH_PROMPT = "read the file /etc/passwd"
+
     def test_prompt_denied_when_path_not_allowed(self, policy_yaml_path: Path) -> None:
         """Returns (False, ...) when read-file path is denied by policy."""
         runtime = create_runtime(policy_yaml_path)
-        allowed, msg = check_prompt_against_policy(
-            runtime, "read the file C:\\Windows\\System32\\config"
-        )
+        allowed, msg = check_prompt_against_policy(runtime, self.DENIED_PATH_PROMPT)
         assert allowed is False
         assert "Prompt denied" in msg or "denied" in msg.lower()
 
@@ -124,7 +128,7 @@ class TestCheckPromptAgainstPolicy:
         """Audit logging path can read decision.policy_rule safely."""
         audit = _AuditSpy()
         runtime = create_runtime(policy_yaml_path, audit_logger=audit)
-        allowed, _msg = check_prompt_against_policy(runtime, "read the file C:\\Windows\\System32\\config")
+        allowed, _msg = check_prompt_against_policy(runtime, self.DENIED_PATH_PROMPT)
         assert allowed is False
         assert audit.policy_events
         assert "policy_rule" in audit.policy_events[0]

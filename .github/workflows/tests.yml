@@ -28,22 +28,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-api.txt -r requirements.txt pytest
 
-      # Network-marked tests are opt-in and skipped here. SIX tests are deselected
-      # below and must be triaged, then their deselects removed. They are tracked,
-      # not hidden:
-      #   (a) 4 pre-existing test-vs-code drift failures (redaction wording,
-      #       explainer messages, tool-error `allowed` semantics). The redaction
-      #       one must be reconciled WITHOUT weakening redaction (PHI hard rule).
-      #   (b) 2 that hardcode a Windows path ("C:\...") in the prompt, so they only
-      #       exercise path-deny on Windows -- on Linux that string isn't seen as a
-      #       path (allowed=True). NOT a security hole; they need a POSIX-path
-      #       variant to run cross-platform.
+      # No deselects: the ENTIRE suite runs. The six previously-deselected tests
+      # were triaged and fixed -- two were real bugs in the explainer (a sensitive
+      # path leaked into denial messages, and approval denials were misreported as
+      # path denials), the rest were bad test expectations. Network-marked tests
+      # remain opt-in and are skipped here.
       - name: Run tests (pytest)
-        run: |
-          pytest -q -m "not network" \
-            --deselect "tests/unit/test_redaction.py::TestRedactData::test_preserves_list_and_tuple_shape" \
-            --deselect "tests/unit/test_explainer.py::TestExplainer::test_path_deny_includes_path_snippet" \
-            --deselect "tests/unit/test_explainer.py::TestExplainer::test_approval_denial_message" \
-            --deselect "tests/integration/test_execute_tool.py::TestToolExecutionErrors::test_tool_error_returns_result_with_failure" \
-            --deselect "tests/unit/test_agent_loop.py::TestCheckPromptAgainstPolicy::test_prompt_denied_when_path_not_allowed" \
-            --deselect "tests/unit/test_agent_loop.py::TestCheckPromptAgainstPolicy::test_prompt_precheck_logs_policy_rule_without_attr_error"
+        run: pytest -q -m "not network"
