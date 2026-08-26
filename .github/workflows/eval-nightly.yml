@@ -115,18 +115,22 @@ jobs:
           python fetch_synthea.py
           python build_fhir_gold.py
 
-      - name: Run FHIR eval (28 cases, 3 runs each)
+      # 1 run (not 3) so 28 calls -- not 84 -- share the Groq free-tier daily budget
+      # with the hospital job, which otherwise starves FHIR into 429s. For full
+      # 3-run confidence, switch to Gemini (free tier, far higher limits): add a
+      # GEMINI_API_KEY secret and set PLANNER_PROVIDER=gemini, PLANNER_MIN_INTERVAL_SEC=4.
+      - name: Run FHIR eval (28 cases)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          PLANNER_PROVIDER: "groq"           # Groq gpt-oss-120b; cerebras/xai selectable
+          PLANNER_PROVIDER: "groq"           # groq/gemini/cerebras/xai selectable
           PLANNER_MIN_INTERVAL_SEC: "12"     # Groq free tier ~8K TPM is the binding limit
           EVAL_DATASET: "fhir"               # select the FHIR bank + fhir_gold.duckdb
           PLANNER_SCHEMA: "fhir"             # must be set in env (planner reads it at import)
-          EVAL_RUNS: "3"
+          EVAL_RUNS: "1"
         # Exit 2 = provider unavailable -> warn, don't fail (see hospital job).
         run: |
           set +e
-          python eval_harness.py --runs 3
+          python eval_harness.py --runs 1
           code=$?
           set -e
           if [ "$code" -eq 2 ]; then

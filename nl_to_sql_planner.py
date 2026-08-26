@@ -77,6 +77,15 @@ PROVIDERS = {
         "api_key_env": "ANTHROPIC_API_KEY",
         "model": "claude-sonnet-4-5",
     },
+    # Google Gemini via its OpenAI-compatible endpoint. Its FREE tier is far more
+    # generous than Groq's (much higher tokens-per-minute), so it can run the full
+    # 63-case eval suite without the 429 throttling the Groq free tier hits. Get a
+    # free key at aistudio.google.com. Override the model with $GEMINI_MODEL.
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "api_key_env": "GEMINI_API_KEY",
+        "model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+    },
 }
 # One line to switch providers, or set PLANNER_PROVIDER in the environment.
 # The guard, policy, eval suite, and API are all unchanged by this choice --
@@ -96,6 +105,7 @@ PROVIDER_RATES = {
     "groq":      {"input": 0.59, "output": 0.79},
     "anthropic": {"input": 3.00, "output": 15.00},
     "xai":       {"input": 3.00, "output": 15.00},   # grok-3 estimate
+    "gemini":    {"input": 0.15, "output": 0.60},    # gemini-2.5-flash est; free tier = $0
 }
 _DEFAULT_RATE = {"input": 1.00, "output": 1.00}
 
