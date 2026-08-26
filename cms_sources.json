@@ -1,0 +1,7 @@
+{
+  "_comment": "CMS dataset id -> local CSV name, consumed by fetch_cms.py in the monthly data-refresh workflow. Provider Data Catalog uses short ids (e.g. xubh-q36u); the main catalog uses UUIDs. Find ids at https://data.cms.gov . Replace each REPLACE_WITH_CMS_ID with the real id to enable the automated fetch.",
+  "hospital_general": "xubh-q36u",
+  "mspb": "REPLACE_WITH_CMS_ID",
+  "unplanned_visits": "REPLACE_WITH_CMS_ID",
+  "timely_effective_care": "REPLACE_WITH_CMS_ID"
+}
