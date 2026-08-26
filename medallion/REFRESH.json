@@ -1,0 +1,10 @@
+{
+  "dataset": "hospital",
+  "last_refreshed": "2026-06-22",
+  "source": "CMS Provider Data Catalog (data.cms.gov)",
+  "method": "build_hospital_gold.py",
+  "cadence": "monthly",
+  "scheduler": ".github/workflows/data-refresh.yml (1st of month, 06:00 UTC)",
+  "row_count": 750,
+  "note": "Monthly automated refresh is configured (data-refresh.yml): it fetches CMS, rebuilds the Gold, validates via the eval gate, and rewrites this file. Fill the dataset ids in cms_sources.json to enable the fetch; until then the last build date is shown."
+}

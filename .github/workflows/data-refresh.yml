@@ -1,0 +1,99 @@
+# .github/workflows/data-refresh.yml
+# Monthly refresh of the CMS hospital Gold. Re-fetches the source CMS datasets,
+# rebuilds the Gold, VALIDATES it with the eval gate (so bad/changed source data
+# can't silently ship), stamps medallion/REFRESH.json, and commits the refreshed
+# Gold back to main. This is what makes the "refreshed monthly" claim real.
+#
+# The Synthea FHIR set is a fixed Sep-2019 sample and does not change, so it is
+# intentionally NOT on a refresh cadence.
+#
+# Prerequisite: fill the dataset ids in cms_sources.json (the fetch step fails
+# loudly with the list of missing ids until you do).
+
+name: data refresh (monthly)
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"      # 06:00 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write            # to commit the refreshed Gold back to the repo
+
+jobs:
+  refresh-hospital:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt
+
+      - name: Fetch CMS sources + rebuild hospital Gold
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          src = json.load(open("cms_sources.json"))
+          items = {k: v for k, v in src.items() if not k.startswith("_")}
+          missing = [k for k, v in items.items() if str(v).startswith("REPLACE_")]
+          if missing:
+              print("::error title=CMS ids missing::Fill cms_sources.json for: " + ", ".join(missing))
+              sys.exit(1)
+          for name, ident in items.items():
+              print(f"fetching {name} ({ident})")
+              subprocess.run([sys.executable, "fetch_cms.py", ident, name], check=True)
+          PY
+          python build_hospital_gold.py
+
+      - name: Validate refreshed Gold (hospital eval gate)
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PLANNER_PROVIDER: "groq"
+          PLANNER_MIN_INTERVAL_SEC: "12"
+          EVAL_SUBSET: "1"
+          EVAL_RUNS: "1"
+        # Exit 1 = accuracy regression -> the refreshed data broke something, do
+        # NOT commit it. Exit 2 = provider unavailable -> inconclusive, don't block
+        # a data refresh on an LLM outage (the data itself is fine).
+        run: |
+          set +e
+          python eval_harness.py
+          code=$?
+          set -e
+          if [ "$code" -eq 1 ]; then
+            echo "::error title=Refresh validation failed::eval regressed on the refreshed data -- not committing."
+            exit 1
+          fi
+
+      - name: Stamp REFRESH.json
+        run: |
+          python - <<'PY'
+          import json, datetime, duckdb
+          con = duckdb.connect("medallion/hospital_gold.duckdb", read_only=True)
+          n = con.execute("SELECT count(*) FROM gold_hospital_profile").fetchone()[0]
+          json.dump({
+              "dataset": "hospital",
+              "last_refreshed": datetime.date.today().isoformat(),
+              "source": "CMS Provider Data Catalog (data.cms.gov)",
+              "method": "data-refresh.yml -> fetch_cms + build_hospital_gold",
+              "cadence": "monthly",
+              "scheduler": ".github/workflows/data-refresh.yml (1st of month, 06:00 UTC)",
+              "row_count": n,
+          }, open("medallion/REFRESH.json", "w"), indent=2)
+          print("stamped REFRESH.json:", n, "hospitals")
+          PY
+
+      - name: Commit refreshed Gold
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add medallion/hospital_gold.duckdb medallion/REFRESH.json
+          git commit -m "data refresh: rebuild hospital Gold from CMS ($(date -u +%Y-%m-%d))" \
+            && git push || echo "no changes to commit"

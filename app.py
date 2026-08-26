@@ -26,8 +26,10 @@ from __future__ import annotations
 import os
 import sys
 import hmac
+import json
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Security, status
@@ -56,12 +58,33 @@ from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
 from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
 import cost_tracker
+import schema_check
 from approval import (ApprovalStore, APPROVE, REJECT, ESCALATE,
                       APPROVE_WITH_EDITS, DECISIONS)
 
 GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
 CAPABILITY = "analytics.query_aggregate"
+_REFRESH_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medallion", "REFRESH.json")
+
+# Human-readable provenance for the "What's inside" view. Descriptive only.
+_DATASET_SOURCES = {
+    "hospital": {
+        "name": "CMS Hospital Quality",
+        "description": "750 hospitals across 12 Northeast/Mid-Atlantic states: overall star rating, "
+                       "Medicare spending per beneficiary, 30-day readmission rates (5 conditions), "
+                       "and ED-flow measures including psychiatric ED boarding time.",
+        "origin": "Public CMS Care Compare / Provider Data Catalog (data.cms.gov)",
+        "phi": "Public, facility-level data. No PHI.",
+    },
+    "fhir": {
+        "name": "FHIR Clinical (Synthea)",
+        "description": "1,180 synthetic patients (~367k FHIR R4 resources) flattened into gold "
+                       "patient / encounter / condition / observation / medication / procedure tables.",
+        "origin": "Synthea synthetic patient generator (Sep 2019 sample).",
+        "phi": "Synthetic patients only. No real PHI.",
+    },
+}
 
 # --- API key auth -----------------------------------------------------------
 # Set API_KEY in the environment to require a key on the data endpoints.
@@ -296,6 +319,41 @@ def health() -> dict:
 @app.get("/schema")
 def schema() -> dict:
     return {"capability": CAPABILITY, "schema": SCHEMA_DOC}
+
+
+@app.get("/datasets")
+def datasets() -> dict:
+    """What the agent is pulling from: the active Gold dataset, its tables + row
+    counts, when it was last built/refreshed, and monthly-refresh status. Powers
+    the 'What's inside' view. Read-only, no auth (like /health).
+
+    Table names come from the schema doc (the guard blocks information_schema);
+    row counts run THROUGH the guard (run_governed_sql), so nothing bypasses it.
+    """
+    active = os.environ.get("PLANNER_SCHEMA", "hospital")
+    info: dict[str, Any] = {
+        "active_dataset": active,
+        "source": _DATASET_SOURCES.get(active, {}),
+        "gold_db": GOLD_DB,
+        "gold_db_present": os.path.exists(GOLD_DB),
+        "last_built": None,
+        "tables": [],
+        "refresh": None,
+    }
+    if os.path.exists(GOLD_DB):
+        ts = os.path.getmtime(GOLD_DB)
+        info["last_built"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    for t in sorted(schema_check.tables_in_schema_doc(SCHEMA_DOC)):
+        res = run_governed_sql(f"SELECT count(*) AS n FROM {t}")
+        rows = res.get("rows") or []
+        info["tables"].append({"table": t, "rows": rows[0].get("n") if rows else None})
+    if os.path.exists(_REFRESH_PATH):
+        try:
+            with open(_REFRESH_PATH) as f:
+                info["refresh"] = json.load(f)
+        except (OSError, ValueError):
+            info["refresh"] = None
+    return info
 
 
 @app.post("/raw-sql", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
