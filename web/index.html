@@ -82,6 +82,9 @@
         <div><label>Mode</label>
           <select id="mode"><option value="query">Ask a question</option><option value="raw-sql">Run SQL directly</option></select>
         </div>
+        <div><label>Data source</label>
+          <select id="backend"><option value="local">Local DuckDB</option><option value="databricks">Databricks</option></select>
+        </div>
       </div>
       <div style="margin-top:14px">
         <label id="inputLabel">Question</label>
@@ -199,6 +202,7 @@ function renderResult(data) {
   const allowed = !!data.allowed;
   let html = allowed ? `<span class="badge ok">ALLOWED · ${esc(data.decided_by)}</span>`
                      : `<span class="badge bad">DENIED · ${esc(data.decided_by)}</span>`;
+  if (data.backend) html += ` <span class="muted small">via ${esc(data.backend)} backend</span>`;
   if (data.reason) html += `<div class="muted small" style="margin-top:10px"><b>Reason:</b> ${esc(data.reason)}</div>`;
   const m = data.planner_metrics;
   if (m) html += `<div class="meta"><span><b>${esc(m.provider)}</b> ${esc(m.model)}</span>
@@ -221,7 +225,8 @@ async function run() {
   const btn = $("runBtn"); btn.disabled = true; btn.textContent = "Running…";
   const el = $("result"); el.style.display = "block"; el.innerHTML = `<span class="muted">Running…</span>`;
   try {
-    const body = mode === "raw-sql" ? {sql:value} : {question:value};
+    const backend = $("backend").value;
+    const body = mode === "raw-sql" ? {sql:value, backend} : {question:value, backend};
     const res = await fetch("/" + mode, {method:"POST",
       headers:{"Content-Type":"application/json","X-API-Key":$("apikey").value}, body:JSON.stringify(body)});
     if (res.status === 401) { el.innerHTML = `<span class="badge bad">401</span> <span class="muted">Invalid or missing API key.</span>`; return; }
@@ -254,7 +259,8 @@ async function loadInside() {
         <div><div class="stat" style="font-size:16px">${esc(d.last_built || "—")}</div><div class="lbl">gold last built</div></div>
         <div>${refreshHtml}</div>
       </div>
-      <div class="small muted" style="margin-top:12px"><b>Source:</b> ${esc(s.origin||"")} · <b>PHI:</b> ${esc(s.phi||"")}</div>`;
+      <div class="small muted" style="margin-top:12px"><b>Source:</b> ${esc(s.origin||"")} · <b>PHI:</b> ${esc(s.phi||"")}</div>
+      <div class="small muted" style="margin-top:6px"><b>Reading from:</b> ${esc((d.backends||{}).default||"local")} backend · ${(d.backends&&d.backends.databricks_configured)?"Databricks configured ✓":"Databricks not configured (set DATABRICKS_* to enable)"}</div>`;
     $("insideTables").style.display = "block";
     $("insideTables").innerHTML = `<h2>Tables the agent can read</h2>
       <div class="tablewrap"><table><thead><tr><th>table</th><th>rows</th></tr></thead><tbody>` +
