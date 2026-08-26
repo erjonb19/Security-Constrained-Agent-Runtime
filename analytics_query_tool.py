@@ -36,20 +36,37 @@ class AnalyticsQueryTool(BaseTool):
         self._con = duckdb.connect(db_path)
         if seed_demo:
             self._seed_demo_gold()
-        # Backend routing (the cloud lift). The local path keeps using self._con
-        # above -- unchanged. Only DATA_BACKEND=databricks swaps execution to run
-        # the SAME guard-approved safe_sql against Delta. The guard still runs
-        # FIRST either way (see execute), so governance is identical.
-        # NOTE: the Databricks path is wired but UNVERIFIED -- no workspace has
-        # been tested against. Requires: pip install databricks-sql-connector.
-        self._backend = None
-        if os.environ.get("DATA_BACKEND", "local").lower() == "databricks":
-            from data_backends import DatabricksBackend
-            self._backend = DatabricksBackend()
+        # Per-request backend selection. DuckDB (self._con) is always available;
+        # Databricks is built when its creds are present (or DATA_BACKEND=databricks).
+        # Both run the SAME guard-approved safe_sql -- the guard runs FIRST either
+        # way (see execute), so governance is identical. The Databricks path is
+        # wired but UNVERIFIED (no workspace tested); needs databricks-sql-connector.
+        self._databricks = None
+        self._databricks_error = None
+        want_dbx = os.environ.get("DATA_BACKEND", "local").lower() == "databricks"
+        have_creds = all(os.environ.get(k) for k in
+                         ("DATABRICKS_SERVER_HOSTNAME", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN"))
+        if want_dbx or have_creds:
+            try:
+                from data_backends import DatabricksBackend
+                self._databricks = DatabricksBackend()
+            except BaseException as e:   # SystemExit (creds) / ImportError (driver)
+                self._databricks_error = str(e)
+        self._default_backend = "databricks" if (want_dbx and self._databricks) else "local"
 
     @property
     def name(self) -> str:
         return "analytics.query_aggregate"
+
+    def backends(self) -> Dict[str, Any]:
+        """Which data backends this tool can serve -- for visibility endpoints."""
+        return {
+            "default": self._default_backend,
+            "available": ["local"] + (["databricks"] if self._databricks else []),
+            "local_db": self._db_path,
+            "databricks_configured": self._databricks is not None,
+            "databricks_error": self._databricks_error,
+        }
 
     def execute(self, params: Dict[str, Any]) -> ToolResult:
         sql = params.get("sql")
@@ -66,11 +83,16 @@ class AnalyticsQueryTool(BaseTool):
                 error=f"DENIED by sql_guard: {decision.reason}",
             )
 
-        # Allowed. Run the safe SQL (row cap already applied by the guard) through
-        # the configured backend: local DuckDB by default, Databricks when set.
+        # Allowed. Run the safe SQL (row cap already applied by the guard) against
+        # the chosen backend -- per-request 'backend' param, else the default.
+        backend = str(params.get("backend") or self._default_backend).lower()
         try:
-            if self._backend is not None:
-                cols, rows = self._backend.execute(decision.safe_sql)
+            if backend == "databricks":
+                if self._databricks is None:
+                    return ToolResult(success=False, output={"safe_sql": decision.safe_sql},
+                                      error=f"Databricks backend not configured: "
+                                            f"{self._databricks_error or 'set DATABRICKS_* env vars'}")
+                cols, rows = self._databricks.execute(decision.safe_sql)
             else:
                 cur = self._con.execute(decision.safe_sql)
                 cols = [d[0] for d in cur.description] if cur.description else []
@@ -83,6 +105,7 @@ class AnalyticsQueryTool(BaseTool):
                 success=True,
                 output={
                     "query_id": query_id,
+                    "backend": backend,
                     "safe_sql": decision.safe_sql,
                     "row_count": len(rows),
                     "columns": cols,
@@ -90,7 +113,7 @@ class AnalyticsQueryTool(BaseTool):
                 },
             )
         except Exception as e:
-            return ToolResult(success=False, output={"safe_sql": decision.safe_sql},
+            return ToolResult(success=False, output={"safe_sql": decision.safe_sql, "backend": backend},
                               error=f"query execution failed: {e}")
 
     # -- demo data only; delete when you point at real Gold -----------------

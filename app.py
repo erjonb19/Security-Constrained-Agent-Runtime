@@ -158,8 +158,10 @@ _LOCK = threading.Lock()
 async def lifespan(app: FastAPI):
     runtime = AgentRuntime()
     runtime.load_policy(POLICY_PATH)
-    runtime.register_tool(AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False))
+    _analytics = AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False)
+    runtime.register_tool(_analytics)
     _STATE["runtime"] = runtime
+    _STATE["analytics_tool"] = _analytics
     if not API_KEY:
         print("WARNING: API_KEY not set -- data endpoints are OPEN (dev mode). "
               "Set API_KEY before exposing this service publicly.")
@@ -220,10 +222,12 @@ def _ui():
 # ---------------------------------------------------------------------------
 class QueryRequest(BaseModel):
     question: str = Field(..., examples=["Which hospitals give the best value, high quality and low cost?"])
+    backend: Optional[str] = Field(None, description="data backend: local (default) | databricks")
 
 
 class SqlRequest(BaseModel):
     sql: str = Field(..., examples=["SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10"])
+    backend: Optional[str] = Field(None, description="data backend: local (default) | databricks")
 
 
 class ProposeRequest(BaseModel):
@@ -253,6 +257,7 @@ class GovernedResponse(BaseModel):
     columns: Optional[list] = None
     rows: Optional[list] = None
     planner_metrics: Optional[dict] = None   # per-call latency, tokens, est cost
+    backend: Optional[str] = None            # which data backend served the query
 
 
 # ---------------------------------------------------------------------------
@@ -286,13 +291,17 @@ def interpret_result(result: Any, sql: str) -> dict:
         "row_count": out.get("row_count"),
         "columns": out.get("columns"),
         "rows": out.get("rows"),
+        "backend": out.get("backend"),
     }
 
 
-def run_governed_sql(sql: str) -> dict:
+def run_governed_sql(sql: str, backend: Optional[str] = None) -> dict:
     runtime = _STATE["runtime"]
+    params: dict[str, Any] = {"sql": sql}
+    if backend:
+        params["backend"] = backend
     with _LOCK:
-        result = runtime.execute_tool(CAPABILITY, {"sql": sql})
+        result = runtime.execute_tool(CAPABILITY, params)
     return interpret_result(result, sql)
 
 
@@ -313,6 +322,7 @@ def health() -> dict:
         "rate_limits": {"llm_endpoints": RATE_LIMIT_QUERY, "read_endpoints": RATE_LIMIT_READ},
         "approvals_enabled": _STATE.get("approval_agent") is not None,
         "approval_error": _STATE.get("approval_error"),
+        "backends": _STATE["analytics_tool"].backends() if _STATE.get("analytics_tool") else None,
     }
 
 
@@ -339,6 +349,7 @@ def datasets() -> dict:
         "last_built": None,
         "tables": [],
         "refresh": None,
+        "backends": _STATE["analytics_tool"].backends() if _STATE.get("analytics_tool") else None,
     }
     if os.path.exists(GOLD_DB):
         ts = os.path.getmtime(GOLD_DB)
@@ -359,7 +370,7 @@ def datasets() -> dict:
 @app.post("/raw-sql", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
 @limiter.limit(RATE_LIMIT_READ)
 def raw_sql(request: Request, req: SqlRequest) -> dict:
-    return run_governed_sql(req.sql)
+    return run_governed_sql(req.sql, req.backend)
 
 
 @app.post("/query", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
@@ -376,7 +387,7 @@ def query(request: Request, req: QueryRequest) -> dict:
         sql, metrics = planner.generate_sql_with_metrics(req.question)
     except Exception as e:
         return {"allowed": False, "decided_by": "policy", "reason": f"planner error: {e}"}
-    out = run_governed_sql(sql)
+    out = run_governed_sql(sql, req.backend)
     out["planner_metrics"] = metrics.as_dict()
     cost_tracker.record(metrics.as_dict(), question=req.question)
     return out

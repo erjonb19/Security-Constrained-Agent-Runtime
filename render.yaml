@@ -12,8 +12,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
-      # Planner model key. Set the value in the Render dashboard.
-      - key: CEREBRAS_API_KEY
+      # Planner provider + key. Default is Groq (free tier). groq/gemini/cerebras/
+      # xai/anthropic are selectable via PLANNER_PROVIDER; set the matching key
+      # value in the Render dashboard (never in git).
+      - key: PLANNER_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
         sync: false
       # API key required on the data endpoints. Set the value in the dashboard.
       - key: API_KEY
