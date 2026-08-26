@@ -7,28 +7,32 @@
 <style>
   :root {
     --bg:#0f1419; --panel:#171d26; --panel2:#1e2632; --line:#2a3542;
-    --text:#e6edf3; --muted:#8b98a5; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149;
+    --text:#e6edf3; --muted:#8b98a5; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149; --warn:#d29922;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.5; }
-  header { padding:22px 24px; border-bottom:1px solid var(--line); }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.55; }
+  header { padding:18px 24px 0; }
   h1 { margin:0; font-size:20px; }
-  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-  main { max-width:960px; margin:0 auto; padding:24px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:18px; }
+  header .sub { margin:4px 0 14px; color:var(--muted); font-size:13px; }
+  nav { display:flex; gap:4px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav button { background:none; border:none; border-bottom:2px solid transparent; color:var(--muted);
+               padding:10px 14px; font-size:14px; cursor:pointer; font-family:var(--sans); }
+  nav button:hover { color:var(--text); }
+  nav button.active { color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
+  main { max-width:980px; margin:0 auto; padding:22px 24px 60px; }
+  .tab { display:none; } .tab.active { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .card h2 { margin:0 0 4px; font-size:16px; } .card h3 { margin:14px 0 6px; font-size:14px; }
   label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
-  input, textarea, select {
-    width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line);
-    border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px;
-  }
-  textarea { min-height:70px; resize:vertical; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; }
-  .row > * { flex:1; min-width:180px; }
-  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  input, textarea, select { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; }
+  textarea { min-height:64px; resize:vertical; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > * { flex:1; min-width:180px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
   .chip { background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:20px;
-          padding:6px 12px; font-size:12px; cursor:pointer; }
+          padding:6px 12px; font-size:12px; cursor:pointer; display:inline-block; margin:4px 4px 0 0; }
   .chip:hover { border-color:var(--accent); color:var(--text); }
   button.run { margin-top:14px; background:var(--accent); color:#fff; border:none; border-radius:8px;
                padding:11px 20px; font-size:14px; font-weight:600; cursor:pointer; }
@@ -36,64 +40,135 @@
   .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
   .badge.ok { background:rgba(63,185,80,.15); color:var(--ok); border:1px solid rgba(63,185,80,.4); }
   .badge.bad { background:rgba(248,81,73,.15); color:var(--bad); border:1px solid rgba(248,81,73,.4); }
+  .badge.warn { background:rgba(210,153,34,.15); color:var(--warn); border:1px solid rgba(210,153,34,.4); }
   .meta { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--muted); }
   .meta b { color:var(--text); font-weight:600; }
-  pre { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px;
-        overflow:auto; font-family:var(--mono); font-size:12.5px; margin:12px 0 0; }
-  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:13px; }
+  pre { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto;
+        font-family:var(--mono); font-size:12.5px; margin:10px 0 0; }
+  table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
   th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
-  .tablewrap { overflow:auto; max-height:420px; border:1px solid var(--line); border-radius:8px; margin-top:12px; }
-  .muted { color:var(--muted); font-size:13px; }
-  .hint { font-size:11px; color:var(--muted); margin-top:6px; }
-  details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); font-size:12px; }
+  .tablewrap { overflow:auto; max-height:420px; border:1px solid var(--line); border-radius:8px; margin-top:10px; }
+  .muted { color:var(--muted); } .small { font-size:12px; }
+  .stat { font-size:26px; font-weight:700; } .stat + .lbl { color:var(--muted); font-size:12px; }
+  details { margin-top:10px; } summary { cursor:pointer; color:var(--muted); font-size:12px; }
   a { color:var(--accent); }
+  .usecase h3 { margin:0 0 4px; } .usecase p { margin:0 0 6px; color:var(--muted); font-size:13px; }
+  .step { display:flex; gap:12px; margin:10px 0; } .step .n { color:var(--accent); font-weight:700; }
 </style>
 </head>
 <body>
 <header>
   <h1>Governed Clinical Agent</h1>
-  <p>Ask in plain English &mdash; the model writes SQL, the guard decides if it may run. The model proposes, the guardrails dispose.</p>
+  <div class="sub">Ask questions of clinical &amp; hospital-quality data in plain English. A model writes the SQL; a security guard decides if it may run. <b>The model proposes, the guardrails dispose.</b></div>
+  <nav id="nav">
+    <button data-tab="ask" class="active">Ask</button>
+    <button data-tab="inside">What's inside</button>
+    <button data-tab="uses">Use cases</button>
+    <button data-tab="how">How it works</button>
+    <button data-tab="metrics">Metrics</button>
+  </nav>
 </header>
 <main>
-  <div class="card">
-    <div class="row">
-      <div style="flex:2">
-        <label for="apikey">API key <span class="muted">(sent as X-API-Key; stored only in this browser)</span></label>
-        <input id="apikey" type="password" placeholder="your API_KEY (leave blank if server runs open in dev)" />
-      </div>
-      <div>
-        <label for="mode">Mode</label>
-        <select id="mode">
-          <option value="query">Ask a question (/query)</option>
-          <option value="raw-sql">Run SQL directly (/raw-sql)</option>
-        </select>
-      </div>
-    </div>
-    <div style="margin-top:14px">
-      <label for="input" id="inputLabel">Question</label>
-      <textarea id="input" placeholder="e.g. Which hospitals give the best value: high quality and low cost?"></textarea>
-      <div class="chips" id="examples"></div>
-    </div>
-    <button class="run" id="runBtn">Run</button>
-    <div class="hint">Endpoints on this service: <a href="/docs" target="_blank">/docs</a> &middot; <a href="/health" target="_blank">/health</a></div>
-  </div>
 
-  <div class="card" id="result" style="display:none"></div>
+  <!-- ASK -->
+  <section class="tab active" id="tab-ask">
+    <div class="card">
+      <div class="row">
+        <div style="flex:2">
+          <label>API key <span class="muted small">(sent as X-API-Key; stored only in this browser)</span></label>
+          <input id="apikey" type="password" placeholder="your API_KEY (blank if the server runs open in dev)" />
+        </div>
+        <div><label>Mode</label>
+          <select id="mode"><option value="query">Ask a question</option><option value="raw-sql">Run SQL directly</option></select>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label id="inputLabel">Question</label>
+        <textarea id="input" placeholder="e.g. Which hospitals give the best value: high quality and low cost?"></textarea>
+        <div id="examples"></div>
+      </div>
+      <button class="run" id="runBtn">Run</button>
+      <div class="small muted" style="margin-top:8px">Tip: Ctrl/Cmd + Enter to run. New to this? Try the <a href="#" id="toUses">use cases</a>.</div>
+    </div>
+    <div class="card" id="result" style="display:none"></div>
+  </section>
+
+  <!-- WHAT'S INSIDE -->
+  <section class="tab" id="tab-inside">
+    <div class="card" id="insideHead"><span class="muted">Loading dataset info…</span></div>
+    <div class="card" id="insideTables" style="display:none"></div>
+    <div class="card">
+      <h2>Full schema the agent may query</h2>
+      <div class="small muted">This is exactly what the model is told about — it cannot invent tables or columns.</div>
+      <details open><summary>Show schema</summary><pre id="schemaBox">…</pre></details>
+    </div>
+  </section>
+
+  <!-- USE CASES -->
+  <section class="tab" id="tab-uses">
+    <div class="card">
+      <h2>What you can use this for</h2>
+      <div class="small muted">Concrete provider / payer workflows. Click any example to try it on the Ask tab.</div>
+      <div id="useCases" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="tab" id="tab-how">
+    <div class="card">
+      <h2>How it works — and why every answer is safe</h2>
+      <p class="small muted">The point of this system is trust. A language model can hallucinate a query or be talked into reaching for data it shouldn't. Here, the model only ever <b>proposes</b> SQL — a security guard decides whether it runs.</p>
+      <div class="step"><div class="n">1</div><div><b>You ask</b> in plain English.</div></div>
+      <div class="step"><div class="n">2</div><div><b>The model writes SQL</b> against a fixed, published schema (see “What's inside”).</div></div>
+      <div class="step"><div class="n">3</div><div><b>The guard validates it</b> before anything runs: SELECT-only, allow-listed tables, an automatic row cap, no system/catalog access, no file-reading. A denied query is refused at the boundary — you see the reason.</div></div>
+      <div class="step"><div class="n">4</div><div><b>The safe query runs</b> and you get rows back, plus the exact SQL the guard ran and what the call cost.</div></div>
+      <h3>What it can never do</h3>
+      <p class="small muted">Write or change data (read-only), touch a table outside the allow-list, read the file system, or return more than the row cap — no matter what the model is convinced to write. Every decision (allow / deny) is auditable.</p>
+      <div class="small muted" style="margin-top:8px">Try it: on the Ask tab, ask “list every table in the database” — a reasonable-looking request the guard refuses, because it reaches for the catalog.</div>
+    </div>
+  </section>
+
+  <!-- METRICS -->
+  <section class="tab" id="tab-metrics">
+    <div class="card" id="metricsHead"><span class="muted">Loading metrics…</span></div>
+    <div class="card"><details><summary>Raw /metrics JSON</summary><pre id="metricsRaw">…</pre></details></div>
+  </section>
+
 </main>
-
 <script>
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const KEY_STORE = "gca_api_key";
 $("apikey").value = localStorage.getItem(KEY_STORE) || "";
 $("apikey").addEventListener("change", e => localStorage.setItem(KEY_STORE, e.target.value));
 
+// ---- tabs ----
+const loaded = {};
+function show(tab) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + tab));
+  if (tab === "inside" && !loaded.inside) { loaded.inside = true; loadInside(); }
+  if (tab === "metrics") loadMetrics();  // always refresh
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
+$("toUses").onclick = (e) => { e.preventDefault(); show("uses"); };
+
+// ---- examples + use cases ----
+const USE_CASES = [
+  {t:"Network steering / care navigation", d:"Point members to the right in-network hospitals, balancing quality against cost.",
+   q:"For heart failure care coordination, which hospitals should we steer members to, balancing readmission performance against cost?"},
+  {t:"Quality benchmarking", d:"Compare facilities on the measures that drive star ratings and penalties.",
+   q:"Which hospitals have the worst 30-day heart failure readmission rates?"},
+  {t:"Behavioral-health access gaps", d:"Surface operational bottlenecks like psychiatric ED boarding.",
+   q:"Which facilities have the longest psychiatric emergency department boarding times?"},
+  {t:"Value analysis", d:"Find high-quality, low-cost providers for value-based contracting.",
+   q:"Which hospitals give the best value: high quality and low Medicare spending per beneficiary?"},
+  {t:"Population insight (clinical / FHIR)", d:"Ask about the synthetic patient population — conditions, encounters, demographics.",
+   q:"How many distinct patients have a diagnosis of viral sinusitis?"},
+];
 const EXAMPLES = {
-  "query": [
-    "Which hospitals give the best value: high quality and low cost?",
-    "Which facilities have the longest psychiatric ED boarding times?",
-    "List every table in the database",
-  ],
+  query: USE_CASES.map(u => u.q),
   "raw-sql": [
     "SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10",
     "SELECT * FROM information_schema.tables",
@@ -102,79 +177,111 @@ const EXAMPLES = {
 function renderExamples() {
   const mode = $("mode").value;
   $("inputLabel").textContent = mode === "raw-sql" ? "SQL" : "Question";
-  $("input").placeholder = mode === "raw-sql"
-    ? "SELECT ... FROM gold_hospital_profile LIMIT 10"
-    : "e.g. Which hospitals give the best value: high quality and low cost?";
   const box = $("examples"); box.innerHTML = "";
   EXAMPLES[mode].forEach(ex => {
     const c = document.createElement("span");
-    c.className = "chip"; c.textContent = ex.length > 60 ? ex.slice(0, 57) + "…" : ex;
-    c.title = ex; c.onclick = () => { $("input").value = ex; };
+    c.className = "chip"; c.textContent = ex.length > 64 ? ex.slice(0,61)+"…" : ex; c.title = ex;
+    c.onclick = () => { $("input").value = ex; };
     box.appendChild(c);
   });
 }
-$("mode").addEventListener("change", renderExamples);
-renderExamples();
+$("mode").addEventListener("change", renderExamples); renderExamples();
+$("useCases").innerHTML = USE_CASES.map(u =>
+  `<div class="usecase card" style="background:var(--panel2)"><h3>${esc(u.t)}</h3><p>${esc(u.d)}</p>
+   <span class="chip" data-q="${esc(u.q)}">Try: ${esc(u.q.length>70?u.q.slice(0,67)+"…":u.q)}</span></div>`).join("");
+document.querySelectorAll("#useCases .chip").forEach(c => c.onclick = () => {
+  $("mode").value = "query"; renderExamples(); $("input").value = c.dataset.q; show("ask"); $("input").focus();
+});
 
-function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
-
+// ---- Ask ----
 function renderResult(data) {
   const el = $("result"); el.style.display = "block";
   const allowed = !!data.allowed;
-  const badge = allowed
-    ? `<span class="badge ok">ALLOWED &middot; ${esc(data.decided_by)}</span>`
-    : `<span class="badge bad">DENIED &middot; ${esc(data.decided_by)}</span>`;
-  let html = badge;
-  if (data.reason) html += `<div class="muted" style="margin-top:10px"><b>Reason:</b> ${esc(data.reason)}</div>`;
-
+  let html = allowed ? `<span class="badge ok">ALLOWED · ${esc(data.decided_by)}</span>`
+                     : `<span class="badge bad">DENIED · ${esc(data.decided_by)}</span>`;
+  if (data.reason) html += `<div class="muted small" style="margin-top:10px"><b>Reason:</b> ${esc(data.reason)}</div>`;
   const m = data.planner_metrics;
-  if (m) {
-    html += `<div class="meta">
-      <span><b>${esc(m.provider)}</b> ${esc(m.model)}</span>
-      <span><b>${esc(m.latency_ms)}</b> ms</span>
-      <span><b>${esc(m.total_tokens)}</b> tokens</span>
-      <span><b>$${esc((m.est_cost_usd ?? 0).toFixed ? m.est_cost_usd.toFixed(6) : m.est_cost_usd)}</b> est</span>
-    </div>`;
-  }
+  if (m) html += `<div class="meta"><span><b>${esc(m.provider)}</b> ${esc(m.model)}</span>
+    <span><b>${esc(m.latency_ms)}</b> ms</span><span><b>${esc(m.total_tokens)}</b> tokens</span>
+    <span><b>$${esc((m.est_cost_usd??0))}</b> est</span></div>`;
   const sql = data.safe_sql || data.sql;
-  if (sql) html += `<label style="margin-top:16px">SQL the guard ${data.safe_sql ? "ran" : "evaluated"}</label><pre>${esc(sql)}</pre>`;
-
+  if (sql) html += `<label style="margin-top:16px">SQL the guard ${data.safe_sql?"ran":"evaluated"}</label><pre>${esc(sql)}</pre>`;
   if (allowed && data.columns && data.rows) {
     html += `<label style="margin-top:16px">${esc(data.row_count)} row(s)</label>`;
-    html += `<div class="tablewrap"><table><thead><tr>` +
-      data.columns.map(c => `<th>${esc(c)}</th>`).join("") + `</tr></thead><tbody>` +
-      data.rows.map(r => `<tr>` + data.columns.map(c => `<td>${esc(r[c])}</td>`).join("") + `</tr>`).join("") +
+    html += `<div class="tablewrap"><table><thead><tr>` + data.columns.map(c=>`<th>${esc(c)}</th>`).join("") +
+      `</tr></thead><tbody>` + data.rows.map(r=>`<tr>`+data.columns.map(c=>`<td>${esc(r[c])}</td>`).join("")+`</tr>`).join("") +
       `</tbody></table></div>`;
   }
-  html += `<details><summary>Raw response JSON</summary><pre>${esc(JSON.stringify(data, null, 2))}</pre></details>`;
+  html += `<details><summary>Raw response JSON</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details>`;
   el.innerHTML = html;
 }
-
 async function run() {
-  const mode = $("mode").value;
-  const value = $("input").value.trim();
+  const mode = $("mode").value, value = $("input").value.trim();
   if (!value) return;
   const btn = $("runBtn"); btn.disabled = true; btn.textContent = "Running…";
   const el = $("result"); el.style.display = "block"; el.innerHTML = `<span class="muted">Running…</span>`;
   try {
-    const body = mode === "raw-sql" ? { sql: value } : { question: value };
-    const res = await fetch("/" + mode, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": $("apikey").value },
-      body: JSON.stringify(body),
-    });
+    const body = mode === "raw-sql" ? {sql:value} : {question:value};
+    const res = await fetch("/" + mode, {method:"POST",
+      headers:{"Content-Type":"application/json","X-API-Key":$("apikey").value}, body:JSON.stringify(body)});
     if (res.status === 401) { el.innerHTML = `<span class="badge bad">401</span> <span class="muted">Invalid or missing API key.</span>`; return; }
-    if (res.status === 429) { el.innerHTML = `<span class="badge bad">429</span> <span class="muted">Rate limit exceeded &mdash; slow down.</span>`; return; }
-    const data = await res.json();
-    renderResult(data);
-  } catch (e) {
-    el.innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message || e)}</span>`;
-  } finally {
-    btn.disabled = false; btn.textContent = "Run";
-  }
+    if (res.status === 429) { el.innerHTML = `<span class="badge warn">429</span> <span class="muted">Rate limit exceeded — slow down.</span>`; return; }
+    renderResult(await res.json());
+  } catch(e) { el.innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
+  finally { btn.disabled = false; btn.textContent = "Run"; }
 }
-$("runBtn").addEventListener("click", run);
-$("input").addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run(); });
+$("runBtn").onclick = run;
+$("input").addEventListener("keydown", e => { if ((e.ctrlKey||e.metaKey) && e.key === "Enter") run(); });
+
+// ---- What's inside ----
+async function loadInside() {
+  try {
+    const d = await (await fetch("/datasets")).json();
+    const s = d.source || {};
+    let refreshHtml;
+    if (d.refresh) {
+      const r = d.refresh;
+      refreshHtml = `<span class="badge ok">refresh: ${esc(r.cadence || "configured")}</span>
+        <div class="small muted" style="margin-top:6px">Last refreshed: <b>${esc(r.last_refreshed || "—")}</b> · source: ${esc(r.source || "—")}<br>${esc(r.note || "")}</div>`;
+    } else {
+      refreshHtml = `<span class="badge warn">no automated refresh recorded</span>`;
+    }
+    const totalRows = d.tables.reduce((a,t)=>a+(t.rows||0),0);
+    $("insideHead").innerHTML = `<h2>${esc(s.name || d.active_dataset)}</h2>
+      <p class="small muted">${esc(s.description || "")}</p>
+      <div class="grid" style="margin-top:12px">
+        <div><div class="stat">${esc(totalRows.toLocaleString())}</div><div class="lbl">rows across ${d.tables.length} gold tables</div></div>
+        <div><div class="stat" style="font-size:16px">${esc(d.last_built || "—")}</div><div class="lbl">gold last built</div></div>
+        <div>${refreshHtml}</div>
+      </div>
+      <div class="small muted" style="margin-top:12px"><b>Source:</b> ${esc(s.origin||"")} · <b>PHI:</b> ${esc(s.phi||"")}</div>`;
+    $("insideTables").style.display = "block";
+    $("insideTables").innerHTML = `<h2>Tables the agent can read</h2>
+      <div class="tablewrap"><table><thead><tr><th>table</th><th>rows</th></tr></thead><tbody>` +
+      d.tables.map(t=>`<tr><td>${esc(t.table)}</td><td>${t.rows==null?"—":esc(t.rows.toLocaleString())}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  } catch(e) { $("insideHead").innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
+  try { const sc = await (await fetch("/schema")).json(); $("schemaBox").textContent = sc.schema || "(unavailable)"; } catch(_) {}
+}
+
+// ---- Metrics ----
+async function loadMetrics() {
+  try {
+    const m = await (await fetch("/metrics")).json();
+    $("metricsRaw").textContent = JSON.stringify(m, null, 2);
+    const g = (k) => m[k] ?? (m.totals && m.totals[k]);
+    const cards = [
+      ["calls", g("calls") ?? g("n") ?? g("count")],
+      ["total tokens", g("total_tokens")],
+      ["est. cost (USD)", g("est_cost_usd") ?? g("total_cost_usd")],
+      ["avg latency (ms)", g("avg_latency_ms") ?? g("mean_latency_ms")],
+    ].filter(([,v]) => v !== undefined && v !== null);
+    $("metricsHead").innerHTML = `<h2>Usage &amp; cost</h2>` + (cards.length
+      ? `<div class="grid" style="margin-top:12px">` + cards.map(([l,v]) =>
+          `<div><div class="stat">${esc(typeof v==="number"?v.toLocaleString():v)}</div><div class="lbl">${esc(l)}</div></div>`).join("") + `</div>`
+      : `<p class="small muted">No calls recorded yet — ask a question on the Ask tab, then come back.</p>`);
+  } catch(e) { $("metricsHead").innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
+}
 </script>
 </body>
 </html>
