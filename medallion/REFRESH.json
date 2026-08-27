@@ -6,5 +6,5 @@
   "cadence": "monthly",
   "scheduler": ".github/workflows/data-refresh.yml (1st of month, 06:00 UTC)",
   "row_count": 750,
-  "note": "Monthly automated refresh is configured (data-refresh.yml): it fetches CMS, rebuilds the Gold, validates via the eval gate, and rewrites this file. Fill the dataset ids in cms_sources.json to enable the fetch; until then the last build date is shown."
+  "note": "Monthly automated refresh is configured and armed (data-refresh.yml, 1st of month 06:00 UTC): it fetches CMS, rebuilds the Gold, validates it with the eval gate, rewrites this file and commits the result. CMS dataset ids are filled in cms_sources.json. This timestamp still shows the last MANUAL build; the first scheduled run will replace it."
 }
