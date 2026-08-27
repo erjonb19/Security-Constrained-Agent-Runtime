@@ -89,7 +89,7 @@ def _dataset(name: Optional[str]) -> str:
 _DATASET_SOURCES = {
     "hospital": {
         "name": "CMS Hospital Quality",
-        "description": "750 hospitals across 12 Northeast/Mid-Atlantic states: overall star rating, "
+        "description": "U.S. hospitals across 12 Northeast/Mid-Atlantic states: overall star rating, "
                        "Medicare spending per beneficiary, 30-day readmission rates (5 conditions), "
                        "and ED-flow measures including psychiatric ED boarding time.",
         "origin": "Public CMS Care Compare / Provider Data Catalog (data.cms.gov)",

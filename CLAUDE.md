@@ -14,7 +14,7 @@ Repo: github.com/erjonb19/Security-Constrained-Agent-Runtime
 - **Guard layer:** validates all generated SQL before execution. SELECT-only, table allow-list, row caps, PHI redaction.
 - **Data layer:** backend-agnostic — LocalDuckDBBackend and DatabricksBackend. The query path (`AnalyticsQueryTool`) now routes execution through the selected backend (`DATA_BACKEND=databricks` switches to Delta); the guard still validates SQL first. The Databricks path is **VERIFIED** against a real workspace (Free Edition serverless SQL): gold published to `workspace.gold` Delta, agent queries served with the guard intact (a catalog query is still DENIED on that path), and the 6-case eval subset passed 100% for backend parity.
 - **Web UI:** `web/index.html` served at `/ui` (root `/` redirects there) — a self-contained page calling `/query` and `/raw-sql` with `X-API-Key`.
-- **Data:** CMS hospital-quality lakehouse in DuckDB (750 hospitals, 12 states) + FHIR lakehouse from 1,180 Synthea R4 bundles, medallion architecture
+- **Data:** CMS hospital-quality lakehouse in DuckDB (~750 hospitals, 12 states; the exact count moves with each monthly CMS refresh -- do not hardcode it) + FHIR lakehouse from 1,180 Synthea R4 bundles, medallion architecture
 - **Human-in-the-loop:** approval checkpoint with SQLite persistence
 - **Cost/latency tracking:** per-call and aggregate
 
