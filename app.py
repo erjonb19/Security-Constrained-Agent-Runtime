@@ -326,6 +326,13 @@ def health() -> dict:
     }
 
 
+@app.get("/auth-check", dependencies=[Depends(require_api_key)])
+def auth_check() -> dict:
+    """Cheap authenticated ping so the UI can validate a key without running a
+    query. 200 = the key works; 401 = it does not."""
+    return {"ok": True, "auth_enabled": bool(API_KEY)}
+
+
 @app.get("/schema")
 def schema() -> dict:
     return {"capability": CAPABILITY, "schema": SCHEMA_DOC}

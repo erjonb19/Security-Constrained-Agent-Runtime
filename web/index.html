@@ -3,290 +3,425 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Governed Clinical Agent</title>
+<title>Clinical Intelligence — Governed Analytics</title>
 <style>
-  :root {
-    --bg:#0f1419; --panel:#171d26; --panel2:#1e2632; --line:#2a3542;
-    --text:#e6edf3; --muted:#8b98a5; --accent:#4c8dff; --ok:#3fb950; --bad:#f85149; --warn:#d29922;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --sans: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  :root{
+    --paper:#FAF7F2; --paper-2:#F3EFE7; --card:#FFFFFF;
+    --ink:#16232B; --ink-2:#4A5C66; --ink-3:#8A9AA3;
+    --rule:#E4DED2; --rule-2:#D6CFC0;
+    --green:#0E6B57; --green-2:#0A5344; --green-wash:#E8F2EE;
+    --copper:#B26134; --copper-wash:#FBEEE5;
+    --red:#A3341F; --red-wash:#FBEBE7; --amber:#8A6410; --amber-wash:#FBF2DF;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --shadow:0 1px 2px rgba(20,35,43,.04),0 8px 24px -12px rgba(20,35,43,.14);
   }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.55; }
-  header { padding:18px 24px 0; }
-  h1 { margin:0; font-size:20px; }
-  header .sub { margin:4px 0 14px; color:var(--muted); font-size:13px; }
-  nav { display:flex; gap:4px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  nav button { background:none; border:none; border-bottom:2px solid transparent; color:var(--muted);
-               padding:10px 14px; font-size:14px; cursor:pointer; font-family:var(--sans); }
-  nav button:hover { color:var(--text); }
-  nav button.active { color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
-  main { max-width:980px; margin:0 auto; padding:22px 24px 60px; }
-  .tab { display:none; } .tab.active { display:block; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
-  .card h2 { margin:0 0 4px; font-size:16px; } .card h3 { margin:14px 0 6px; font-size:14px; }
-  label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em; }
-  input, textarea, select { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--line);
-    border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; }
-  textarea { min-height:64px; resize:vertical; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > * { flex:1; min-width:180px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
-  .chip { background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:20px;
-          padding:6px 12px; font-size:12px; cursor:pointer; display:inline-block; margin:4px 4px 0 0; }
-  .chip:hover { border-color:var(--accent); color:var(--text); }
-  button.run { margin-top:14px; background:var(--accent); color:#fff; border:none; border-radius:8px;
-               padding:11px 20px; font-size:14px; font-weight:600; cursor:pointer; }
-  button.run:disabled { opacity:.5; cursor:default; }
-  .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; }
-  .badge.ok { background:rgba(63,185,80,.15); color:var(--ok); border:1px solid rgba(63,185,80,.4); }
-  .badge.bad { background:rgba(248,81,73,.15); color:var(--bad); border:1px solid rgba(248,81,73,.4); }
-  .badge.warn { background:rgba(210,153,34,.15); color:var(--warn); border:1px solid rgba(210,153,34,.4); }
-  .meta { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; font-size:12px; color:var(--muted); }
-  .meta b { color:var(--text); font-weight:600; }
-  pre { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto;
-        font-family:var(--mono); font-size:12.5px; margin:10px 0 0; }
-  table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
-  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
-  .tablewrap { overflow:auto; max-height:420px; border:1px solid var(--line); border-radius:8px; margin-top:10px; }
-  .muted { color:var(--muted); } .small { font-size:12px; }
-  .stat { font-size:26px; font-weight:700; } .stat + .lbl { color:var(--muted); font-size:12px; }
-  details { margin-top:10px; } summary { cursor:pointer; color:var(--muted); font-size:12px; }
-  a { color:var(--accent); }
-  .usecase h3 { margin:0 0 4px; } .usecase p { margin:0 0 6px; color:var(--muted); font-size:13px; }
-  .step { display:flex; gap:12px; margin:10px 0; } .step .n { color:var(--accent); font-weight:700; }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.6;
+    background-image:radial-gradient(circle at 1px 1px, rgba(20,35,43,.035) 1px, transparent 0);
+    background-size:22px 22px;
+  }
+  /* ---------- top bar ---------- */
+  .top{background:var(--card); border-bottom:1px solid var(--rule); position:sticky; top:0; z-index:40}
+  .top-in{max-width:1080px; margin:0 auto; padding:0 28px; display:flex; align-items:center; gap:28px; height:62px}
+  .brand{display:flex; align-items:center; gap:11px; margin-right:auto}
+  .mark{width:30px;height:30px;border-radius:7px;background:linear-gradient(150deg,var(--green),#12876D);
+        display:grid;place-items:center;color:#fff;font-family:var(--serif);font-size:16px;font-weight:700;flex:none}
+  .brand h1{font-family:var(--serif); font-size:17px; font-weight:600; margin:0; letter-spacing:.2px}
+  .brand span{display:block; font-size:10.5px; color:var(--ink-3); letter-spacing:.14em; text-transform:uppercase; font-weight:600}
+  nav{display:flex; gap:2px}
+  nav button{background:none;border:none;font-family:var(--sans);font-size:14px;color:var(--ink-2);
+             padding:8px 13px;border-radius:7px;cursor:pointer}
+  nav button:hover{background:var(--paper-2); color:var(--ink)}
+  nav button.on{background:var(--green-wash); color:var(--green-2); font-weight:600}
+  .gear{background:none;border:1px solid var(--rule);border-radius:8px;padding:7px 11px;cursor:pointer;
+        font-size:13px;color:var(--ink-2);display:flex;align-items:center;gap:7px}
+  .gear:hover{border-color:var(--rule-2)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
+  .dot.ok{background:var(--green)} .dot.bad{background:var(--red)}
+  /* ---------- layout ---------- */
+  main{max-width:1080px;margin:0 auto;padding:38px 28px 90px}
+  .view{display:none} .view.on{display:block}
+  .hero{margin-bottom:26px}
+  .hero h2{font-family:var(--serif);font-size:33px;line-height:1.22;font-weight:600;margin:0 0 8px;letter-spacing:-.2px}
+  .hero p{color:var(--ink-2);margin:0;max-width:62ch;font-size:15.5px}
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow)}
+  .pad{padding:22px}
+  .eyebrow{font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);font-weight:700;margin-bottom:9px}
+  /* ---------- ask ---------- */
+  .askbox textarea{width:100%;border:none;outline:none;resize:vertical;min-height:74px;background:transparent;
+    font-family:var(--serif);font-size:21px;line-height:1.45;color:var(--ink)}
+  .askbox textarea::placeholder{color:var(--ink-3)}
+  .askfoot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--rule);padding:13px 22px;background:var(--paper-2);border-radius:0 0 12px 12px}
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  .seg button{background:none;border:none;padding:7px 13px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-family:var(--sans)}
+  .seg button.on{background:var(--ink);color:#fff;font-weight:600}
+  .seg + .seglabel{font-size:11px;color:var(--ink-3);margin-right:2px}
+  .go{margin-left:auto;background:var(--green);color:#fff;border:none;border-radius:9px;padding:11px 24px;
+      font-size:14.5px;font-weight:600;cursor:pointer;font-family:var(--sans);box-shadow:0 1px 0 var(--green-2)}
+  .go:hover{background:var(--green-2)} .go:disabled{opacity:.55;cursor:default}
+  .starters{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:11px;margin-top:20px}
+  .starter{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:14px 15px;cursor:pointer;text-align:left;font-family:var(--sans)}
+  .starter:hover{border-color:var(--green);background:var(--green-wash)}
+  .starter b{display:block;font-size:12px;color:var(--green-2);letter-spacing:.04em;text-transform:uppercase;margin-bottom:5px}
+  .starter span{font-size:13.5px;color:var(--ink-2);line-height:1.45}
+  /* ---------- answer ---------- */
+  .answer{margin-top:26px}
+  .trust{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 22px;border-bottom:1px solid var(--rule);background:var(--green-wash);border-radius:12px 12px 0 0}
+  .trust.deny{background:var(--red-wash)} .trust.warn{background:var(--amber-wash)}
+  .pill{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:4px 10px;border-radius:99px;background:var(--green);color:#fff}
+  .pill.deny{background:var(--red)} .pill.warn{background:var(--amber)}
+  .trust small{color:var(--ink-2);font-size:12.5px}
+  .headline{font-family:var(--serif);font-size:46px;line-height:1.1;font-weight:600;margin:6px 0 2px;letter-spacing:-1px}
+  .headline-sub{color:var(--ink-3);font-size:13px;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);white-space:nowrap}
+  th{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:700;
+     background:var(--paper-2);position:sticky;top:0}
+  tbody tr:hover{background:var(--paper-2)}
+  .tblwrap{overflow:auto;max-height:430px;border:1px solid var(--rule);border-radius:9px;margin-top:14px}
+  .foot{display:flex;gap:20px;flex-wrap:wrap;padding:12px 22px;border-top:1px solid var(--rule);color:var(--ink-3);font-size:12px;background:var(--paper-2);border-radius:0 0 12px 12px}
+  .foot b{color:var(--ink-2)}
+  details.audit{margin:0;border-top:1px solid var(--rule)}
+  details.audit summary{padding:12px 22px;cursor:pointer;font-size:13px;color:var(--green-2);font-weight:600;list-style:none}
+  details.audit summary::-webkit-details-marker{display:none}
+  details.audit summary:before{content:"▸ ";color:var(--ink-3)}
+  details.audit[open] summary:before{content:"▾ "}
+  pre{background:#121D24;color:#D9E6E1;border-radius:9px;padding:14px;overflow:auto;font-family:var(--mono);
+      font-size:12.5px;margin:0 22px 18px;line-height:1.55}
+  /* ---------- data / generic ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+  .stat{font-family:var(--serif);font-size:31px;font-weight:600;line-height:1.1}
+  .statlbl{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-top:3px}
+  .kv{display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13.5px}
+  .kv:last-child{border:none} .kv b{min-width:132px;color:var(--ink-2);font-weight:600}
+  .badge{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--green-wash);color:var(--green-2)}
+  .badge.warn{background:var(--amber-wash);color:var(--amber)}
+  .steps{counter-reset:s;margin:0;padding:0;list-style:none}
+  .steps li{counter-increment:s;padding:14px 0 14px 46px;position:relative;border-bottom:1px solid var(--rule)}
+  .steps li:last-child{border:none}
+  .steps li:before{content:counter(s);position:absolute;left:0;top:13px;width:29px;height:29px;border-radius:50%;
+    background:var(--green-wash);color:var(--green-2);display:grid;place-items:center;font-weight:700;font-size:13px;font-family:var(--serif)}
+  .steps b{display:block;margin-bottom:2px}
+  .steps span{color:var(--ink-2);font-size:14px}
+  .usecase{padding:16px 0;border-bottom:1px solid var(--rule)}
+  .usecase:last-child{border:none}
+  .usecase h3{font-family:var(--serif);font-size:18px;margin:0 0 3px;font-weight:600}
+  .usecase p{margin:0 0 9px;color:var(--ink-2);font-size:14px}
+  .try{background:var(--card);border:1px solid var(--rule-2);border-radius:8px;padding:8px 13px;font-size:13px;
+       cursor:pointer;color:var(--green-2);font-family:var(--sans);font-weight:600}
+  .try:hover{background:var(--green-wash);border-color:var(--green)}
+  /* ---------- settings drawer ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(20,35,43,.32);display:none;z-index:50}
+  .scrim.on{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:390px;max-width:92vw;background:var(--card);
+          border-left:1px solid var(--rule);z-index:60;transform:translateX(100%);transition:transform .22s ease;
+          display:flex;flex-direction:column}
+  .drawer.on{transform:none}
+  .drawer header{padding:20px 22px;border-bottom:1px solid var(--rule);display:flex;align-items:center}
+  .drawer header h3{font-family:var(--serif);font-size:19px;margin:0;font-weight:600}
+  .drawer header button{margin-left:auto;background:none;border:none;font-size:21px;cursor:pointer;color:var(--ink-3);line-height:1}
+  .drawer .body{padding:22px;overflow:auto}
+  label.f{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:700;margin:0 0 6px}
+  input[type=password],input[type=text],select{width:100%;padding:10px 12px;border:1px solid var(--rule-2);border-radius:8px;
+    font-size:14px;font-family:var(--sans);background:var(--paper);color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--green);outline-offset:1px}
+  .hint{font-size:12px;color:var(--ink-3);margin-top:7px;line-height:1.5}
+  .save{margin-top:14px;width:100%;background:var(--ink);color:#fff;border:none;border-radius:8px;padding:11px;
+        font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans)}
+  .note{margin-top:16px;padding:12px 13px;border-radius:9px;background:var(--copper-wash);border:1px solid #EEDCCB;font-size:12.5px;color:#6E3E20}
+  .muted{color:var(--ink-3)} .small{font-size:12.5px}
+  a{color:var(--green-2)}
+  @media(max-width:720px){ .top-in{gap:12px;padding:0 16px} nav button{padding:8px 9px;font-size:13px} main{padding:24px 16px 70px} .hero h2{font-size:26px} }
 </style>
 </head>
 <body>
-<header>
-  <h1>Governed Clinical Agent</h1>
-  <div class="sub">Ask questions of clinical &amp; hospital-quality data in plain English. A model writes the SQL; a security guard decides if it may run. <b>The model proposes, the guardrails dispose.</b></div>
+
+<div class="top"><div class="top-in">
+  <div class="brand">
+    <div class="mark">C</div>
+    <div><h1>Clinical Intelligence</h1><span>Governed Analytics</span></div>
+  </div>
   <nav id="nav">
-    <button data-tab="ask" class="active">Ask</button>
-    <button data-tab="inside">What's inside</button>
-    <button data-tab="uses">Use cases</button>
-    <button data-tab="how">How it works</button>
-    <button data-tab="metrics">Metrics</button>
+    <button data-v="ask" class="on">Ask</button>
+    <button data-v="data">Data</button>
+    <button data-v="uses">Use cases</button>
+    <button data-v="trust">Trust</button>
+    <button data-v="usage">Usage</button>
   </nav>
-</header>
+  <button class="gear" id="gearBtn"><span class="dot" id="connDot"></span><span id="connTxt">Connect</span></button>
+</div></div>
+
 <main>
+  <!-- ============ ASK ============ -->
+  <section class="view on" id="v-ask">
+    <div class="hero">
+      <h2>What would you like to know?</h2>
+      <p>Ask in plain English. Every answer is checked by a security layer before any data is read &mdash; and you can see exactly how it was produced.</p>
+    </div>
 
-  <!-- ASK -->
-  <section class="tab active" id="tab-ask">
-    <div class="card">
-      <div class="row">
-        <div style="flex:2">
-          <label>API key <span class="muted small">(sent as X-API-Key; stored only in this browser)</span></label>
-          <input id="apikey" type="password" placeholder="your API_KEY (blank if the server runs open in dev)" />
-        </div>
-        <div><label>Mode</label>
-          <select id="mode"><option value="query">Ask a question</option><option value="raw-sql">Run SQL directly</option></select>
-        </div>
-        <div><label>Data source</label>
-          <select id="backend"><option value="local">Local DuckDB</option><option value="databricks">Databricks</option></select>
-        </div>
+    <div class="card askbox">
+      <div class="pad" style="padding-bottom:6px">
+        <textarea id="q" placeholder="e.g. Which hospitals deliver the best value — high quality at lower cost?"></textarea>
       </div>
-      <div style="margin-top:14px">
-        <label id="inputLabel">Question</label>
-        <textarea id="input" placeholder="e.g. Which hospitals give the best value: high quality and low cost?"></textarea>
-        <div id="examples"></div>
+      <div class="askfoot">
+        <span class="seglabel">Mode</span>
+        <div class="seg" id="segMode"><button data-m="query" class="on">Question</button><button data-m="raw-sql">SQL</button></div>
+        <span class="seglabel">Source</span>
+        <div class="seg" id="segBackend"><button data-b="local" class="on">DuckDB</button><button data-b="databricks">Databricks</button></div>
+        <button class="go" id="go">Get answer</button>
       </div>
-      <button class="run" id="runBtn">Run</button>
-      <div class="small muted" style="margin-top:8px">Tip: Ctrl/Cmd + Enter to run. New to this? Try the <a href="#" id="toUses">use cases</a>.</div>
     </div>
-    <div class="card" id="result" style="display:none"></div>
+
+    <div class="starters" id="starters"></div>
+    <div id="answer" class="answer"></div>
   </section>
 
-  <!-- WHAT'S INSIDE -->
-  <section class="tab" id="tab-inside">
-    <div class="card" id="insideHead"><span class="muted">Loading dataset info…</span></div>
-    <div class="card" id="insideTables" style="display:none"></div>
-    <div class="card">
-      <h2>Full schema the agent may query</h2>
-      <div class="small muted">This is exactly what the model is told about — it cannot invent tables or columns.</div>
-      <details open><summary>Show schema</summary><pre id="schemaBox">…</pre></details>
-    </div>
+  <!-- ============ DATA ============ -->
+  <section class="view" id="v-data">
+    <div class="hero"><h2>What's inside</h2><p>The exact data this assistant can read &mdash; nothing more.</p></div>
+    <div id="dataBody"><div class="card pad muted">Loading…</div></div>
   </section>
 
-  <!-- USE CASES -->
-  <section class="tab" id="tab-uses">
-    <div class="card">
-      <h2>What you can use this for</h2>
-      <div class="small muted">Concrete provider / payer workflows. Click any example to try it on the Ask tab.</div>
-      <div id="useCases" style="margin-top:12px"></div>
-    </div>
+  <!-- ============ USE CASES ============ -->
+  <section class="view" id="v-uses">
+    <div class="hero"><h2>Where this creates value</h2><p>Common provider and payer workflows. Select one to run it.</p></div>
+    <div class="card pad" id="useBody"></div>
   </section>
 
-  <!-- HOW IT WORKS -->
-  <section class="tab" id="tab-how">
-    <div class="card">
-      <h2>How it works — and why every answer is safe</h2>
-      <p class="small muted">The point of this system is trust. A language model can hallucinate a query or be talked into reaching for data it shouldn't. Here, the model only ever <b>proposes</b> SQL — a security guard decides whether it runs.</p>
-      <div class="step"><div class="n">1</div><div><b>You ask</b> in plain English.</div></div>
-      <div class="step"><div class="n">2</div><div><b>The model writes SQL</b> against a fixed, published schema (see “What's inside”).</div></div>
-      <div class="step"><div class="n">3</div><div><b>The guard validates it</b> before anything runs: SELECT-only, allow-listed tables, an automatic row cap, no system/catalog access, no file-reading. A denied query is refused at the boundary — you see the reason.</div></div>
-      <div class="step"><div class="n">4</div><div><b>The safe query runs</b> and you get rows back, plus the exact SQL the guard ran and what the call cost.</div></div>
-      <h3>What it can never do</h3>
-      <p class="small muted">Write or change data (read-only), touch a table outside the allow-list, read the file system, or return more than the row cap — no matter what the model is convinced to write. Every decision (allow / deny) is auditable.</p>
-      <div class="small muted" style="margin-top:8px">Try it: on the Ask tab, ask “list every table in the database” — a reasonable-looking request the guard refuses, because it reaches for the catalog.</div>
+  <!-- ============ TRUST ============ -->
+  <section class="view" id="v-trust">
+    <div class="hero"><h2>Why you can trust the answers</h2><p>The assistant proposes; an independent security layer decides.</p></div>
+    <div class="card pad">
+      <ol class="steps">
+        <li><b>You ask a question</b><span>In plain English &mdash; no query language required.</span></li>
+        <li><b>A model drafts the query</b><span>Written against a fixed, published data dictionary. It cannot invent tables or columns.</span></li>
+        <li><b>The security layer rules on it</b><span>Read-only, approved tables only, automatic result limits, no system or file access. Anything else is refused at the boundary &mdash; with the reason shown.</span></li>
+        <li><b>You get the answer and the receipt</b><span>The result, the exact query that ran, and what the request cost.</span></li>
+      </ol>
+      <div style="margin-top:20px" class="eyebrow">Guarantees</div>
+      <div class="grid">
+        <div><div class="badge">Read-only</div><p class="small muted" style="margin:7px 0 0">Data can never be modified or deleted.</p></div>
+        <div><div class="badge">Approved tables only</div><p class="small muted" style="margin:7px 0 0">Access outside the allow-list is refused.</p></div>
+        <div><div class="badge">Result limits</div><p class="small muted" style="margin:7px 0 0">Bulk extraction is capped automatically.</p></div>
+        <div><div class="badge">Fully audited</div><p class="small muted" style="margin:7px 0 0">Every decision is recorded and reviewable.</p></div>
+      </div>
+      <div class="note" style="margin-top:20px"><b>See it yourself:</b> on the Ask tab, request &ldquo;list every table in the database.&rdquo; It looks harmless, and it is refused &mdash; because it reaches into the system catalog.</div>
     </div>
   </section>
 
-  <!-- METRICS -->
-  <section class="tab" id="tab-metrics">
-    <div class="card" id="metricsHead"><span class="muted">Loading metrics…</span></div>
-    <div class="card"><details><summary>Raw /metrics JSON</summary><pre id="metricsRaw">…</pre></details></div>
+  <!-- ============ USAGE ============ -->
+  <section class="view" id="v-usage">
+    <div class="hero"><h2>Usage &amp; cost</h2><p>What this service has consumed.</p></div>
+    <div id="usageBody"><div class="card pad muted">Loading…</div></div>
   </section>
-
 </main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <header><h3>Connection</h3><button id="closeDrawer">&times;</button></header>
+  <div class="body">
+    <label class="f" for="key">Access key</label>
+    <input id="key" type="password" placeholder="paste your access key" autocomplete="off" />
+    <div class="hint" id="keyHint">Stored only in this browser. Each environment has its own key &mdash; a key from one server will not work on another.</div>
+    <button class="save" id="saveKey">Save &amp; test</button>
+    <div id="keyResult" class="hint"></div>
+    <div class="note">
+      <b>Where am I connected?</b><br/>
+      <span id="whereAmI" class="small"></span>
+    </div>
+  </div>
+</aside>
+
 <script>
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const KEY_STORE = "gca_api_key";
-$("apikey").value = localStorage.getItem(KEY_STORE) || "";
-$("apikey").addEventListener("change", e => localStorage.setItem(KEY_STORE, e.target.value));
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const KEY="ci_access_key";
+let MODE="query", BACKEND="local";
 
-// ---- tabs ----
-const loaded = {};
-function show(tab) {
-  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-  document.querySelectorAll(".tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + tab));
-  if (tab === "inside" && !loaded.inside) { loaded.inside = true; loadInside(); }
-  if (tab === "metrics") loadMetrics();  // always refresh
+/* ---------- settings drawer ---------- */
+function openDrawer(){ $("drawer").classList.add("on"); $("scrim").classList.add("on"); $("key").focus(); }
+function closeDrawer(){ $("drawer").classList.remove("on"); $("scrim").classList.remove("on"); }
+$("gearBtn").onclick=openDrawer; $("closeDrawer").onclick=closeDrawer; $("scrim").onclick=closeDrawer;
+$("key").value=localStorage.getItem(KEY)||"";
+$("whereAmI").textContent=location.origin;
+
+function setConn(state,label){
+  const d=$("connDot"); d.className="dot"+(state==="ok"?" ok":state==="bad"?" bad":"");
+  $("connTxt").textContent=label;
 }
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
-$("toUses").onclick = (e) => { e.preventDefault(); show("uses"); };
+async function testKey(quiet){
+  const k=$("key").value.trim();
+  try{
+    const r=await fetch("/auth-check",{headers:{"X-API-Key":k}});
+    if(r.ok){ setConn("ok","Connected"); if(!quiet) $("keyResult").innerHTML='<span style="color:var(--green)">✓ Key accepted — you\'re connected.</span>'; return true; }
+    if(r.status===401){ setConn("bad","Key needed"); if(!quiet) $("keyResult").innerHTML='<span style="color:var(--red)">This key was rejected by '+esc(location.host)+'. Each server has its own key.</span>'; return false; }
+    setConn("bad","Error"); return false;
+  }catch(e){ setConn("bad","Offline"); if(!quiet) $("keyResult").textContent="Could not reach the service."; return false; }
+}
+$("saveKey").onclick=async()=>{ localStorage.setItem(KEY,$("key").value.trim()); await testKey(false); };
+testKey(true);
 
-// ---- examples + use cases ----
-const USE_CASES = [
-  {t:"Network steering / care navigation", d:"Point members to the right in-network hospitals, balancing quality against cost.",
+/* ---------- nav ---------- */
+const loaded={};
+function show(v){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
+  if(v==="data"&&!loaded.data){loaded.data=1;loadData();}
+  if(v==="usage")loadUsage();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>show(b.dataset.v));
+
+/* ---------- segmented controls ---------- */
+$("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
+  MODE=b.dataset.m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x===b));
+  $("q").placeholder = MODE==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
+                                        : "e.g. Which hospitals deliver the best value — high quality at lower cost?"; };
+$("segBackend").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
+  BACKEND=b.dataset.b; [...$("segBackend").children].forEach(x=>x.classList.toggle("on",x===b)); };
+
+/* ---------- starters / use cases ---------- */
+const CASES=[
+  {tag:"Network steering",t:"Care navigation",d:"Direct members to the right hospitals, balancing quality against cost.",
    q:"For heart failure care coordination, which hospitals should we steer members to, balancing readmission performance against cost?"},
-  {t:"Quality benchmarking", d:"Compare facilities on the measures that drive star ratings and penalties.",
+  {tag:"Benchmarking",t:"Quality performance",d:"Compare facilities on the measures that drive ratings and penalties.",
    q:"Which hospitals have the worst 30-day heart failure readmission rates?"},
-  {t:"Behavioral-health access gaps", d:"Surface operational bottlenecks like psychiatric ED boarding.",
+  {tag:"Access gaps",t:"Behavioral health",d:"Surface operational bottlenecks such as psychiatric ED boarding.",
    q:"Which facilities have the longest psychiatric emergency department boarding times?"},
-  {t:"Value analysis", d:"Find high-quality, low-cost providers for value-based contracting.",
+  {tag:"Value analysis",t:"Contracting",d:"Identify high-quality, lower-cost providers for value-based agreements.",
    q:"Which hospitals give the best value: high quality and low Medicare spending per beneficiary?"},
-  {t:"Population insight (clinical / FHIR)", d:"Ask about the synthetic patient population — conditions, encounters, demographics.",
-   q:"How many distinct patients have a diagnosis of viral sinusitis?"},
 ];
-const EXAMPLES = {
-  query: USE_CASES.map(u => u.q),
-  "raw-sql": [
-    "SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10",
-    "SELECT * FROM information_schema.tables",
-  ],
-};
-function renderExamples() {
-  const mode = $("mode").value;
-  $("inputLabel").textContent = mode === "raw-sql" ? "SQL" : "Question";
-  const box = $("examples"); box.innerHTML = "";
-  EXAMPLES[mode].forEach(ex => {
-    const c = document.createElement("span");
-    c.className = "chip"; c.textContent = ex.length > 64 ? ex.slice(0,61)+"…" : ex; c.title = ex;
-    c.onclick = () => { $("input").value = ex; };
-    box.appendChild(c);
-  });
-}
-$("mode").addEventListener("change", renderExamples); renderExamples();
-$("useCases").innerHTML = USE_CASES.map(u =>
-  `<div class="usecase card" style="background:var(--panel2)"><h3>${esc(u.t)}</h3><p>${esc(u.d)}</p>
-   <span class="chip" data-q="${esc(u.q)}">Try: ${esc(u.q.length>70?u.q.slice(0,67)+"…":u.q)}</span></div>`).join("");
-document.querySelectorAll("#useCases .chip").forEach(c => c.onclick = () => {
-  $("mode").value = "query"; renderExamples(); $("input").value = c.dataset.q; show("ask"); $("input").focus();
-});
+$("starters").innerHTML=CASES.slice(0,4).map((c,i)=>
+  `<button class="starter" data-i="${i}"><b>${esc(c.tag)}</b><span>${esc(c.q.length>92?c.q.slice(0,89)+"…":c.q)}</span></button>`).join("");
+$("starters").onclick=e=>{const b=e.target.closest(".starter"); if(!b)return; $("q").value=CASES[+b.dataset.i].q; $("q").focus();};
+$("useBody").innerHTML=CASES.map((c,i)=>
+  `<div class="usecase"><h3>${esc(c.t)}</h3><p>${esc(c.d)}</p><button class="try" data-i="${i}">Run this question →</button></div>`).join("");
+$("useBody").onclick=e=>{const b=e.target.closest(".try"); if(!b)return;
+  $("q").value=CASES[+b.dataset.i].q; MODE="query"; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m==="query")); show("ask"); run();};
 
-// ---- Ask ----
-function renderResult(data) {
-  const el = $("result"); el.style.display = "block";
-  const allowed = !!data.allowed;
-  let html = allowed ? `<span class="badge ok">ALLOWED · ${esc(data.decided_by)}</span>`
-                     : `<span class="badge bad">DENIED · ${esc(data.decided_by)}</span>`;
-  if (data.backend) html += ` <span class="muted small">via ${esc(data.backend)} backend</span>`;
-  if (data.reason) html += `<div class="muted small" style="margin-top:10px"><b>Reason:</b> ${esc(data.reason)}</div>`;
-  const m = data.planner_metrics;
-  if (m) html += `<div class="meta"><span><b>${esc(m.provider)}</b> ${esc(m.model)}</span>
-    <span><b>${esc(m.latency_ms)}</b> ms</span><span><b>${esc(m.total_tokens)}</b> tokens</span>
-    <span><b>$${esc((m.est_cost_usd??0))}</b> est</span></div>`;
-  const sql = data.safe_sql || data.sql;
-  if (sql) html += `<label style="margin-top:16px">SQL the guard ${data.safe_sql?"ran":"evaluated"}</label><pre>${esc(sql)}</pre>`;
-  if (allowed && data.columns && data.rows) {
-    html += `<label style="margin-top:16px">${esc(data.row_count)} row(s)</label>`;
-    html += `<div class="tablewrap"><table><thead><tr>` + data.columns.map(c=>`<th>${esc(c)}</th>`).join("") +
-      `</tr></thead><tbody>` + data.rows.map(r=>`<tr>`+data.columns.map(c=>`<td>${esc(r[c])}</td>`).join("")+`</tr>`).join("") +
-      `</tbody></table></div>`;
-  }
-  html += `<details><summary>Raw response JSON</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details>`;
-  el.innerHTML = html;
-}
-async function run() {
-  const mode = $("mode").value, value = $("input").value.trim();
-  if (!value) return;
-  const btn = $("runBtn"); btn.disabled = true; btn.textContent = "Running…";
-  const el = $("result"); el.style.display = "block"; el.innerHTML = `<span class="muted">Running…</span>`;
-  try {
-    const backend = $("backend").value;
-    const body = mode === "raw-sql" ? {sql:value, backend} : {question:value, backend};
-    const res = await fetch("/" + mode, {method:"POST",
-      headers:{"Content-Type":"application/json","X-API-Key":$("apikey").value}, body:JSON.stringify(body)});
-    if (res.status === 401) { el.innerHTML = `<span class="badge bad">401</span> <span class="muted">Invalid or missing API key.</span>`; return; }
-    if (res.status === 429) { el.innerHTML = `<span class="badge warn">429</span> <span class="muted">Rate limit exceeded — slow down.</span>`; return; }
-    renderResult(await res.json());
-  } catch(e) { el.innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
-  finally { btn.disabled = false; btn.textContent = "Run"; }
-}
-$("runBtn").onclick = run;
-$("input").addEventListener("keydown", e => { if ((e.ctrlKey||e.metaKey) && e.key === "Enter") run(); });
+/* ---------- ask ---------- */
+function fmt(v){ if(v===null||v===undefined)return "—";
+  if(typeof v==="number") return Number.isInteger(v)?v.toLocaleString():v.toLocaleString(undefined,{maximumFractionDigits:2});
+  return String(v); }
 
-// ---- What's inside ----
-async function loadInside() {
-  try {
-    const d = await (await fetch("/datasets")).json();
-    const s = d.source || {};
-    let refreshHtml;
-    if (d.refresh) {
-      const r = d.refresh;
-      refreshHtml = `<span class="badge ok">refresh: ${esc(r.cadence || "configured")}</span>
-        <div class="small muted" style="margin-top:6px">Last refreshed: <b>${esc(r.last_refreshed || "—")}</b> · source: ${esc(r.source || "—")}<br>${esc(r.note || "")}</div>`;
+function renderAnswer(d){
+  const el=$("answer"); const ok=!!d.allowed;
+  const cls=ok?"":"deny";
+  let h=`<div class="card"><div class="trust ${cls}">
+      <span class="pill ${cls}">${ok?"Answered":"Refused"}</span>
+      <small>${ok?"Verified by the security layer · read-only · result-limited":"Blocked at the boundary before any data was read"}</small></div>`;
+
+  if(!ok){
+    h+=`<div class="pad"><div class="eyebrow">Why it was refused</div>
+        <div style="font-size:15px">${esc(d.reason||"Not permitted")}</div>
+        <p class="small muted" style="margin-top:12px">This is the guard working as intended. Rephrase your question, or see <a href="#" id="toTrust">how this works</a>.</p></div>`;
+  } else {
+    const rows=d.rows||[], cols=d.columns||[];
+    h+=`<div class="pad">`;
+    if(rows.length===1&&cols.length<=2){
+      const k=cols[cols.length-1]; h+=`<div class="headline-sub">${esc(k)}</div><div class="headline">${esc(fmt(rows[0][k]))}</div>`;
+      if(cols.length===2) h+=`<div class="muted">${esc(fmt(rows[0][cols[0]]))}</div>`;
     } else {
-      refreshHtml = `<span class="badge warn">no automated refresh recorded</span>`;
+      h+=`<div class="eyebrow">${rows.length} result${rows.length===1?"":"s"}</div>
+        <div class="tblwrap"><table><thead><tr>${cols.map(c=>`<th>${esc(c.replace(/_/g," "))}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${esc(fmt(r[c]))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     }
-    const totalRows = d.tables.reduce((a,t)=>a+(t.rows||0),0);
-    $("insideHead").innerHTML = `<h2>${esc(s.name || d.active_dataset)}</h2>
-      <p class="small muted">${esc(s.description || "")}</p>
-      <div class="grid" style="margin-top:12px">
-        <div><div class="stat">${esc(totalRows.toLocaleString())}</div><div class="lbl">rows across ${d.tables.length} gold tables</div></div>
-        <div><div class="stat" style="font-size:16px">${esc(d.last_built || "—")}</div><div class="lbl">gold last built</div></div>
-        <div>${refreshHtml}</div>
-      </div>
-      <div class="small muted" style="margin-top:12px"><b>Source:</b> ${esc(s.origin||"")} · <b>PHI:</b> ${esc(s.phi||"")}</div>
-      <div class="small muted" style="margin-top:6px"><b>Reading from:</b> ${esc((d.backends||{}).default||"local")} backend · ${(d.backends&&d.backends.databricks_configured)?"Databricks configured ✓":"Databricks not configured (set DATABRICKS_* to enable)"}</div>`;
-    $("insideTables").style.display = "block";
-    $("insideTables").innerHTML = `<h2>Tables the agent can read</h2>
-      <div class="tablewrap"><table><thead><tr><th>table</th><th>rows</th></tr></thead><tbody>` +
-      d.tables.map(t=>`<tr><td>${esc(t.table)}</td><td>${t.rows==null?"—":esc(t.rows.toLocaleString())}</td></tr>`).join("") +
-      `</tbody></table></div>`;
-  } catch(e) { $("insideHead").innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
-  try { const sc = await (await fetch("/schema")).json(); $("schemaBox").textContent = sc.schema || "(unavailable)"; } catch(_) {}
+    h+=`</div>`;
+  }
+  h+=`<details class="audit"><summary>How this answer was produced</summary>
+      <pre>${esc(d.safe_sql||d.sql||"(no query)")}</pre>
+      <pre>${esc(JSON.stringify(d,null,2))}</pre></details>`;
+  const m=d.planner_metrics;
+  h+=`<div class="foot">
+      <span>Source <b>${esc(d.backend||BACKEND)}</b></span>
+      <span>Decision <b>${esc(d.decided_by||"—")}</b></span>
+      ${m?`<span>Model <b>${esc(m.model)}</b></span><span>Time <b>${esc(m.latency_ms)} ms</b></span><span>Cost <b>$${esc(m.est_cost_usd??0)}</b></span>`:""}
+    </div></div>`;
+  el.innerHTML=h;
+  const t=$("toTrust"); if(t)t.onclick=e=>{e.preventDefault();show("trust");};
+  el.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 
-// ---- Metrics ----
-async function loadMetrics() {
-  try {
-    const m = await (await fetch("/metrics")).json();
-    $("metricsRaw").textContent = JSON.stringify(m, null, 2);
-    const g = (k) => m[k] ?? (m.totals && m.totals[k]);
-    const cards = [
-      ["calls", g("calls") ?? g("n") ?? g("count")],
-      ["total tokens", g("total_tokens")],
-      ["est. cost (USD)", g("est_cost_usd") ?? g("total_cost_usd")],
-      ["avg latency (ms)", g("avg_latency_ms") ?? g("mean_latency_ms")],
-    ].filter(([,v]) => v !== undefined && v !== null);
-    $("metricsHead").innerHTML = `<h2>Usage &amp; cost</h2>` + (cards.length
-      ? `<div class="grid" style="margin-top:12px">` + cards.map(([l,v]) =>
-          `<div><div class="stat">${esc(typeof v==="number"?v.toLocaleString():v)}</div><div class="lbl">${esc(l)}</div></div>`).join("") + `</div>`
-      : `<p class="small muted">No calls recorded yet — ask a question on the Ask tab, then come back.</p>`);
-  } catch(e) { $("metricsHead").innerHTML = `<span class="badge bad">error</span> <span class="muted">${esc(e.message||e)}</span>`; }
+async function run(){
+  const v=$("q").value.trim(); if(!v)return;
+  const btn=$("go"); btn.disabled=true; btn.textContent="Working…";
+  $("answer").innerHTML=`<div class="card pad muted">Consulting the data… <span class="small">(a sleeping warehouse can take up to a minute)</span></div>`;
+  try{
+    const body=MODE==="raw-sql"?{sql:v,backend:BACKEND}:{question:v,backend:BACKEND};
+    const r=await fetch("/"+MODE,{method:"POST",
+      headers:{"Content-Type":"application/json","X-API-Key":($("key").value||"").trim()},body:JSON.stringify(body)});
+    if(r.status===401){ setConn("bad","Key needed");
+      $("answer").innerHTML=`<div class="card pad"><div class="pill deny">Not connected</div>
+        <p style="margin:12px 0 0">This service needs an access key before it can answer.</p>
+        <p class="small muted">Each environment has its own key — one from a different server won't work here.</p>
+        <button class="try" id="openS" style="margin-top:8px">Enter access key →</button></div>`;
+      $("openS").onclick=openDrawer; return; }
+    if(r.status===429){ $("answer").innerHTML=`<div class="card pad"><div class="pill warn">Slow down</div>
+        <p style="margin:12px 0 0">Too many requests in a short period. Wait a moment and try again.</p></div>`; return; }
+    renderAnswer(await r.json()); setConn("ok","Connected");
+  }catch(e){ $("answer").innerHTML=`<div class="card pad"><div class="pill deny">Error</div><p style="margin:12px 0 0">${esc(e.message||e)}</p></div>`; }
+  finally{ btn.disabled=false; btn.textContent="Get answer"; }
+}
+$("go").onclick=run;
+$("q").addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter")run();});
+
+/* ---------- data view ---------- */
+async function loadData(){
+  try{
+    const d=await (await fetch("/datasets")).json();
+    const s=d.source||{}, b=d.backends||{};
+    const total=(d.tables||[]).reduce((a,t)=>a+(t.rows||0),0);
+    const r=d.refresh;
+    $("dataBody").innerHTML=`
+      <div class="card pad">
+        <div class="eyebrow">Active dataset</div>
+        <h3 style="font-family:var(--serif);font-size:23px;margin:0 0 6px;font-weight:600">${esc(s.name||d.active_dataset)}</h3>
+        <p class="muted" style="margin:0 0 18px;max-width:70ch">${esc(s.description||"")}</p>
+        <div class="grid">
+          <div><div class="stat">${total.toLocaleString()}</div><div class="statlbl">records available</div></div>
+          <div><div class="stat">${(d.tables||[]).length}</div><div class="statlbl">approved tables</div></div>
+          <div><div class="stat" style="font-size:19px">${esc((d.last_built||"—").split(" ")[0])}</div><div class="statlbl">last updated</div></div>
+          <div><div class="badge ${r?"":"warn"}">${r?esc(r.cadence||"scheduled")+" refresh":"manual refresh"}</div>
+               <div class="statlbl" style="margin-top:7px">${r?esc("last "+(r.last_refreshed||"—")):"no schedule recorded"}</div></div>
+        </div>
+      </div>
+      <div class="card pad" style="margin-top:16px">
+        <div class="eyebrow">Provenance &amp; privacy</div>
+        <div class="kv"><b>Source</b><span>${esc(s.origin||"—")}</span></div>
+        <div class="kv"><b>Patient privacy</b><span>${esc(s.phi||"—")}</span></div>
+        <div class="kv"><b>Reading from</b><span>${esc(b.default||"local")} &nbsp;·&nbsp; ${b.databricks_configured?"Databricks connected ✓":"Databricks not configured"}</span></div>
+        ${r?`<div class="kv"><b>Refresh method</b><span>${esc(r.method||"—")}</span></div>`:""}
+      </div>
+      <div class="card pad" style="margin-top:16px">
+        <div class="eyebrow">Tables the assistant may read</div>
+        <div class="tblwrap"><table><thead><tr><th>table</th><th>records</th></tr></thead><tbody>
+        ${(d.tables||[]).map(t=>`<tr><td>${esc(t.table)}</td><td>${t.rows==null?"—":t.rows.toLocaleString()}</td></tr>`).join("")}
+        </tbody></table></div>
+        <details class="audit" style="border-top:none;margin-top:12px"><summary>Full data dictionary</summary><pre id="schemaBox" style="margin:10px 0 0">…</pre></details>
+      </div>`;
+    const sc=await (await fetch("/schema")).json();
+    if($("schemaBox")) $("schemaBox").textContent=sc.schema||"(unavailable)";
+  }catch(e){ $("dataBody").innerHTML=`<div class="card pad">Could not load: ${esc(e.message||e)}</div>`; }
+}
+
+/* ---------- usage view ---------- */
+async function loadUsage(){
+  try{
+    const m=await (await fetch("/metrics")).json();
+    const g=k=>m[k]??(m.totals&&m.totals[k]);
+    const cards=[["requests",g("calls")??g("n")??g("count")],["tokens used",g("total_tokens")],
+                 ["estimated cost",g("est_cost_usd")??g("total_cost_usd")],["avg response",g("avg_latency_ms")??g("mean_latency_ms")]]
+                 .filter(([,v])=>v!==undefined&&v!==null);
+    $("usageBody").innerHTML=`<div class="card pad">${cards.length?
+      `<div class="grid">${cards.map(([l,v])=>`<div><div class="stat">${typeof v==="number"?v.toLocaleString(undefined,{maximumFractionDigits:4}):esc(v)}</div><div class="statlbl">${esc(l)}</div></div>`).join("")}</div>`
+      :`<p class="muted" style="margin:0">No activity recorded yet. Ask a question, then return here.</p>`}
+      </div>
+      <div class="card pad" style="margin-top:16px"><details class="audit" style="border:none"><summary>Detailed metrics</summary><pre style="margin:10px 0 0">${esc(JSON.stringify(m,null,2))}</pre></details></div>`;
+  }catch(e){ $("usageBody").innerHTML=`<div class="card pad">Could not load: ${esc(e.message||e)}</div>`; }
 }
 </script>
 </body>
