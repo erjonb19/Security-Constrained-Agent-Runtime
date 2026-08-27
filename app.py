@@ -234,7 +234,14 @@ def _root():
 
 @app.get("/ui", include_in_schema=False)
 def _ui():
-    return FileResponse(os.path.join(_WEB_DIR, "index.html"), media_type="text/html")
+    # no-store: the UI is a single file that changes often, and a stale cached copy
+    # silently strips new behaviour (buttons that do nothing) while looking fine.
+    # Always serve the current page.
+    return FileResponse(
+        os.path.join(_WEB_DIR, "index.html"),
+        media_type="text/html",
+        headers={"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 # ---------------------------------------------------------------------------
