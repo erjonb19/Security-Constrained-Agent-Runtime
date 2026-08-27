@@ -10,3 +10,5 @@ eval_runs/
 eval_runs/
 medallion/fhir_gold.duckdb
 medallion/*.parquet
+srv_err.log
+srv_out.log

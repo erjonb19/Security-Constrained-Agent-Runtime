@@ -148,7 +148,7 @@
   <nav id="nav">
     <button data-v="ask" class="on">Ask</button>
     <button data-v="data">Data</button>
-    <button data-v="uses">Use cases</button>
+    <button data-v="uses">Guide</button>
     <button data-v="trust">Trust</button>
     <button data-v="usage">Usage</button>
   </nav>
@@ -181,6 +181,8 @@
       <div class="askfoot">
         <span class="seglabel">Mode</span>
         <div class="seg" id="segMode"><button data-m="query" class="on">Question</button><button data-m="raw-sql">SQL</button></div>
+        <span class="seglabel" title="Which body of data to ask about.">Dataset</span>
+        <div class="seg" id="segDataset"></div>
         <span class="seglabel" title="Where the data is read from. Both hold the same tables and obey the same rules.">Read from</span>
         <div class="seg" id="segBackend">
           <button data-b="local" class="on" title="A local database file on this machine — fast, no cloud.">This computer</button>
@@ -190,6 +192,7 @@
       </div>
     </div>
 
+    <div id="dsHint" class="small muted" style="margin-top:10px;padding:9px 13px;background:var(--paper-2);border:1px solid var(--rule);border-radius:9px"></div>
     <div class="starters" id="starters"></div>
     <div id="answer" class="answer"></div>
   </section>
@@ -202,8 +205,67 @@
 
   <!-- ============ USE CASES ============ -->
   <section class="view" id="v-uses">
-    <div class="hero"><h2>Where this creates value</h2><p>Common provider and payer workflows. Select one to run it.</p></div>
-    <div class="card pad" id="useBody"></div>
+    <div class="hero"><h2>Guide</h2><p>Which dataset to ask, and how to ask it.</p></div>
+
+    <div class="card pad">
+      <div class="eyebrow">Step 1 &mdash; choose the right dataset</div>
+      <p class="small muted" style="margin:0 0 14px">These are two separate bodies of data. A question about patients cannot be answered by hospital data, and vice versa.</p>
+      <div class="grid">
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Hospital quality</h3>
+          <div class="small muted" style="margin-bottom:9px">750 U.S. hospitals &middot; public CMS data</div>
+          <div class="small" style="margin-bottom:4px"><b>Contains:</b> star ratings, 30-day readmission rates, Medicare spend per patient, emergency-department wait and boarding times, by facility and state.</div>
+          <div class="small" style="margin:9px 0 4px"><b>Ask about:</b> facilities, quality, cost, geography.</div>
+          <ul class="small muted" style="margin:0 0 9px 16px;padding:0">
+            <li>Which hospitals have the worst readmission rates?</li>
+            <li>Best value: high quality, low cost?</li>
+            <li>Longest psychiatric ED boarding times?</li>
+          </ul>
+          <div class="small" style="color:var(--red)"><b>Cannot answer:</b> anything about individual patients, diagnoses, medications or lab results.</div>
+        </div>
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Clinical records</h3>
+          <div class="small muted" style="margin-bottom:9px">1,180 patients &middot; ~331,000 records &middot; synthetic (no real PHI)</div>
+          <div class="small" style="margin-bottom:4px"><b>Contains:</b> patients, encounters/visits, diagnoses, medications, procedures and lab observations.</div>
+          <div class="small" style="margin:9px 0 4px"><b>Ask about:</b> patients, conditions, treatments, utilisation.</div>
+          <ul class="small muted" style="margin:0 0 9px 16px;padding:0">
+            <li>How many patients by gender?</li>
+            <li>How many distinct patients have viral sinusitis?</li>
+            <li>Most frequently prescribed medications?</li>
+          </ul>
+          <div class="small" style="color:var(--red)"><b>Cannot answer:</b> hospital ratings, readmission rates or facility costs.</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:16px">Ask the wrong one and nothing breaks &mdash; you&rsquo;ll get a <b>Can&rsquo;t answer</b> card with a one-click button to switch and retry.</div>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Step 2 &mdash; question or SQL?</div>
+      <div class="grid">
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Question <span class="badge" style="vertical-align:middle">recommended</span></h3>
+          <p class="small muted" style="margin:0">Type plain English. The assistant writes the query for you. <b>Use this unless you specifically want to write SQL.</b></p>
+          <p class="small muted" style="margin:8px 0 0"><i>&ldquo;Which hospitals give the best value?&rdquo;</i></p>
+        </div>
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">SQL</h3>
+          <p class="small muted" style="margin:0">For analysts who know the tables. You write the query; the security layer still checks it before it runs.</p>
+          <p class="small muted" style="margin:8px 0 0"><code>SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10</code></p>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:12px">The column names are on the <b>Data</b> tab, under &ldquo;Full data dictionary&rdquo;.</div>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Step 3 &mdash; where should it read from?</div>
+      <p class="small muted" style="margin:0 0 6px"><b>This computer</b> &mdash; a local database file. Fast, no cloud, always available.</p>
+      <p class="small muted" style="margin:0"><b>Databricks cloud</b> &mdash; the same tables in your cloud warehouse. Identical answers and identical security; the first query may take a moment while the warehouse wakes up.</p>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Example workflows for the selected dataset</div>
+      <div id="useBody"></div>
+    </div>
   </section>
 
   <!-- ============ TRUST ============ -->
@@ -254,7 +316,7 @@
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const KEY="ci_access_key";
-let MODE="query", BACKEND="local";
+let MODE="query", BACKEND="local", DATASET=null;
 
 /* ---------- settings drawer ---------- */
 function openDrawer(){ $("drawer").classList.add("on"); $("scrim").classList.add("on"); $("key").focus(); }
@@ -292,6 +354,12 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
 (async function boot(){
   let cfg={};
   try{ cfg=await (await fetch("/ui-config")).json(); }catch(_){}
+  if(Array.isArray(cfg.datasets)){
+    DATASET=cfg.default_dataset||cfg.datasets[0].id;
+    $("segDataset").innerHTML=cfg.datasets.map(x=>
+      `<button data-d="${esc(x.id)}" class="${x.id===DATASET?"on":""}" ${x.available?"":"disabled title='not built on this server'"}>${esc(x.label.split(" (")[0])}</button>`).join("");
+    setDataset(DATASET);   // paints the hint + starters for the initial dataset
+  } else { renderStarters(); }
   if(!cfg.auth_required){ setConn("ok","Open access"); return; }
   // On this machine the server's own key is authoritative: always use it, even if
   // a stale/wrong key was saved earlier from another environment.
@@ -318,10 +386,27 @@ function show(v){
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>show(b.dataset.v));
 
 /* ---------- segmented controls ---------- */
-$("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
-  MODE=b.dataset.m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x===b));
-  $("q").placeholder = MODE==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
-                                        : "e.g. Which hospitals deliver the best value — high quality at lower cost?"; };
+function setMode(m){
+  MODE=m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m===m));
+  $("q").placeholder = m==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
+    : (DATASET==="fhir" ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
+                        : "e.g. Which hospitals deliver the best value — high quality at lower cost?");
+}
+$("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return; setMode(b.dataset.m); };
+function setDataset(id){
+  if(!id) return;
+  DATASET=id; loaded.data=0;
+  [...$("segDataset").children].forEach(x=>x.classList.toggle("on",x.dataset.d===id));
+  if(MODE!=="raw-sql") $("q").placeholder = id==="fhir"
+    ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
+    : "e.g. Which hospitals deliver the best value — high quality at lower cost?";
+  const hint=$("dsHint");
+  if(hint) hint.innerHTML = id==="fhir"
+    ? "<b>Clinical records</b> &mdash; 1,180 patients, ~331,000 records. Ask about patients, diagnoses, medications, visits and lab results. <span class='muted'>Not hospital ratings or costs.</span>"
+    : "<b>Hospital quality</b> &mdash; 750 U.S. hospitals. Ask about ratings, readmissions, cost and emergency-department times. <span class='muted'>Not individual patients or diagnoses.</span>";
+  try{ renderStarters(); }catch(err){ console.error("starters",err); }
+}
+$("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return; setDataset(b.dataset.d); };
 $("segBackend").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
   BACKEND=b.dataset.b; [...$("segBackend").children].forEach(x=>x.classList.toggle("on",x===b)); };
 
@@ -336,13 +421,27 @@ const CASES=[
   {tag:"Value analysis",t:"Contracting",d:"Identify high-quality, lower-cost providers for value-based agreements.",
    q:"Which hospitals give the best value: high quality and low Medicare spending per beneficiary?"},
 ];
-$("starters").innerHTML=CASES.slice(0,4).map((c,i)=>
-  `<button class="starter" data-i="${i}"><b>${esc(c.tag)}</b><span>${esc(c.q.length>92?c.q.slice(0,89)+"…":c.q)}</span></button>`).join("");
-$("starters").onclick=e=>{const b=e.target.closest(".starter"); if(!b)return; $("q").value=CASES[+b.dataset.i].q; $("q").focus();};
-$("useBody").innerHTML=CASES.map((c,i)=>
-  `<div class="usecase"><h3>${esc(c.t)}</h3><p>${esc(c.d)}</p><button class="try" data-i="${i}">Run this question →</button></div>`).join("");
+const FHIR_CASES=[
+  {tag:"Population health",t:"Condition prevalence",d:"How common is a condition across the patient population.",
+   q:"How many distinct patients have a diagnosis of viral sinusitis?"},
+  {tag:"Utilization",t:"Encounter patterns",d:"Understand how patients are using care.",
+   q:"What are the most common encounter types, and how many of each?"},
+  {tag:"Demographics",t:"Population mix",d:"Who is in the population, by age and gender.",
+   q:"How many patients are there by gender?"},
+  {tag:"Medications",t:"Prescribing patterns",d:"Which medications are prescribed most often.",
+   q:"What are the 10 most frequently prescribed medications?"},
+];
+function activeCases(){ return DATASET==="fhir" ? FHIR_CASES : CASES; }
+function renderStarters(){
+  const cs=activeCases();
+  $("starters").innerHTML=cs.map((c,i)=>
+    `<button class="starter" data-i="${i}"><b>${esc(c.tag)}</b><span>${esc(c.q.length>92?c.q.slice(0,89)+"…":c.q)}</span></button>`).join("");
+  $("useBody").innerHTML=cs.map((c,i)=>
+    `<div class="usecase"><h3>${esc(c.t)}</h3><p>${esc(c.d)}</p><button class="try" data-i="${i}">Run this question →</button></div>`).join("");
+}
+$("starters").onclick=e=>{const b=e.target.closest(".starter"); if(!b)return; $("q").value=activeCases()[+b.dataset.i].q; $("q").focus();};
 $("useBody").onclick=e=>{const b=e.target.closest(".try"); if(!b)return;
-  $("q").value=CASES[+b.dataset.i].q; MODE="query"; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m==="query")); show("ask"); run();};
+  $("q").value=activeCases()[+b.dataset.i].q; MODE="query"; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m==="query")); show("ask"); run();};
 
 /* ---------- ask ---------- */
 function fmt(v){ if(v===null||v===undefined)return "—";
@@ -381,7 +480,23 @@ function summarize(d){
 }
 
 function renderAnswer(d){
-  const el=$("answer"); const ok=!!d.allowed;
+  const el=$("answer");
+  // A dataset that cannot answer is NOT an answer -- never dress it up as one.
+  if(d.unanswerable){
+    const other=d.suggest_dataset;
+    const label=other==="fhir"?"Clinical records":other==="hospital"?"Hospital quality":other;
+    el.innerHTML=`<div class="card"><div class="trust warn">
+        <span class="pill warn">Can't answer</span>
+        <small>This dataset doesn't contain what the question asks for</small></div>
+      <div class="pad"><div style="font-family:var(--serif);font-size:18.5px;line-height:1.5">${esc(d.unanswerable)}</div>
+      <p class="small muted" style="margin:12px 0 0">You're asking the <b>${esc(d.dataset==="fhir"?"Clinical records":"Hospital quality")}</b> dataset.
+      ${other?`This question looks like it belongs to <b>${esc(label)}</b>.`:""}</p>
+      ${other?`<button class="try" id="switchDs" style="margin-top:10px">Switch to ${esc(label)} and retry →</button>`:""}
+      </div></div>`;
+    if(other){ $("switchDs").onclick=()=>{ setDataset(other); setMode("query"); run(); }; }
+    el.scrollIntoView({behavior:"smooth",block:"nearest"}); return;
+  }
+  const ok=!!d.allowed;
   const cls=ok?"":"deny";
   let h=`<div class="card"><div class="trust ${cls}">
       <span class="pill ${cls}">${ok?"Answered":"Refused"}</span>
@@ -410,6 +525,7 @@ function renderAnswer(d){
       <pre>${esc(JSON.stringify(d,null,2))}</pre></details>`;
   const m=d.planner_metrics;
   h+=`<div class="foot">
+      <span>Dataset <b>${esc(d.dataset||DATASET||"—")}</b></span>
       <span>Source <b>${esc(d.backend||BACKEND)}</b></span>
       <span>Decision <b>${esc(d.decided_by||"—")}</b></span>
       ${m?`<span>Model <b>${esc(m.model)}</b></span><span>Time <b>${esc(m.latency_ms)} ms</b></span><span>Cost <b>$${esc(m.est_cost_usd??0)}</b></span>`:""}
@@ -421,10 +537,21 @@ function renderAnswer(d){
 
 async function run(){
   const v=$("q").value.trim(); if(!v)return;
+  // SQL mode expects SQL. Typing a plain question here produces a scary
+  // "unparseable SQL" guard denial; catch it first and offer the obvious fix.
+  if(MODE==="raw-sql" && !/^\s*(select|with)/i.test(v)){
+    $("answer").innerHTML=`<div class="card"><div class="trust warn">
+        <span class="pill warn">That's a question, not SQL</span>
+        <small>You're in SQL mode</small></div>
+      <div class="pad"><p style="margin:0">SQL mode expects a statement starting with <b>SELECT</b>. It looks like you typed a question.</p>
+      <button class="try" id="toQuestion" style="margin-top:10px">Ask it as a question instead →</button></div></div>`;
+    $("toQuestion").onclick=()=>{ setMode("query"); run(); };
+    return;
+  }
   const btn=$("go"); btn.disabled=true; btn.textContent="Working…";
   $("answer").innerHTML=`<div class="card pad muted">Consulting the data… <span class="small">(a sleeping warehouse can take up to a minute)</span></div>`;
   try{
-    const body=MODE==="raw-sql"?{sql:v,backend:BACKEND}:{question:v,backend:BACKEND};
+    const body=MODE==="raw-sql"?{sql:v,backend:BACKEND,dataset:DATASET}:{question:v,backend:BACKEND,dataset:DATASET};
     const r=await fetch("/"+MODE,{method:"POST",
       headers:{"Content-Type":"application/json","X-API-Key":($("key").value||"").trim()},body:JSON.stringify(body)});
     if(r.status===401){ setConn("bad","Key needed");
@@ -446,7 +573,7 @@ $("q").addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter"
 /* ---------- data view ---------- */
 async function loadData(){
   try{
-    const d=await (await fetch("/datasets")).json();
+    const d=await (await fetch("/datasets"+(DATASET?"?dataset="+encodeURIComponent(DATASET):""))).json();
     const s=d.source||{}, b=d.backends||{};
     const total=(d.tables||[]).reduce((a,t)=>a+(t.rows||0),0);
     const r=d.refresh;
@@ -477,7 +604,7 @@ async function loadData(){
         </tbody></table></div>
         <details class="audit" style="border-top:none;margin-top:12px"><summary>Full data dictionary</summary><pre id="schemaBox" style="margin:10px 0 0">…</pre></details>
       </div>`;
-    const sc=await (await fetch("/schema")).json();
+    const sc=await (await fetch("/schema"+(DATASET?"?dataset="+encodeURIComponent(DATASET):""))).json();
     if($("schemaBox")) $("schemaBox").textContent=sc.schema||"(unavailable)";
   }catch(e){ $("dataBody").innerHTML=`<div class="card pad">Could not load: ${esc(e.message||e)}</div>`; }
 }

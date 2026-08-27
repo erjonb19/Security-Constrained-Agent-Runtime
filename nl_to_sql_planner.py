@@ -282,10 +282,13 @@ _SCHEMAS = {"hospital": SCHEMA_DOC_HOSPITAL, "fhir": SCHEMA_DOC_FHIR}
 SCHEMA_DOC = _SCHEMAS.get(os.environ.get("PLANNER_SCHEMA", "hospital").lower(),
                           SCHEMA_DOC_HOSPITAL)
 
-SYSTEM_PROMPT = f"""You are a careful healthcare analytics SQL writer. You translate a question \
+def build_system_prompt(schema_doc: str) -> str:
+    """The system prompt for a GIVEN schema doc, so one planner can serve
+    multiple datasets (the UI switches between hospital and clinical)."""
+    return f"""You are a careful healthcare analytics SQL writer. You translate a question \
 into ONE DuckDB SQL SELECT statement against the schema below.
 
-{SCHEMA_DOC}
+{schema_doc}
 
 Rules:
 - Output ONLY the SQL. No explanation, no markdown, no code fences.
@@ -298,7 +301,15 @@ Rules:
   guarantees the same rows come back in the same order every run, even when several
   hospitals share the same value.
 - Lower is better for readmission rates and ED times; higher is better for star_rating.
+- If the question CANNOT be answered from the schema above (it asks about data this
+  dataset does not contain), do not invent columns and do not dress the refusal up
+  as a result. Return exactly one statement of this shape, and nothing else:
+      SELECT 'short reason' AS unanswerable
 """
+
+
+# Default prompt for the dataset selected by PLANNER_SCHEMA.
+SYSTEM_PROMPT = build_system_prompt(SCHEMA_DOC)
 
 
 class NLToSQLPlanner:
@@ -326,7 +337,7 @@ class NLToSQLPlanner:
         # drop a trailing semicolon (guard rejects stacked/empty trailing stmts)
         return t.rstrip(";").strip()
 
-    def generate_sql_with_metrics(self, question: str):
+    def generate_sql_with_metrics(self, question: str, schema_doc: str | None = None):
         """Generate SQL and capture per-call latency + token usage.
 
         Returns (sql, CallMetrics). The OpenAI-compatible response carries token
@@ -340,7 +351,7 @@ class NLToSQLPlanner:
         resp = self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": build_system_prompt(schema_doc) if schema_doc else SYSTEM_PROMPT},
                 {"role": "user", "content": question},
             ],
             temperature=0.1,
@@ -358,7 +369,7 @@ class NLToSQLPlanner:
         sql = self._extract_sql(resp.choices[0].message.content or "")
         return sql, metrics
 
-    def generate_sql(self, question: str) -> str:
+    def generate_sql(self, question: str, schema_doc: str | None = None) -> str:
         """SQL only. Backward-compatible wrapper over generate_sql_with_metrics."""
         sql, _ = self.generate_sql_with_metrics(question)
         return sql

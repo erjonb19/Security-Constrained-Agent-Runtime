@@ -56,7 +56,8 @@ except ImportError:
 
 from src.runtime.agent_runtime import AgentRuntime
 from analytics_query_tool import AnalyticsQueryTool
-from nl_to_sql_planner import NLToSQLPlanner, SCHEMA_DOC
+from nl_to_sql_planner import (NLToSQLPlanner, SCHEMA_DOC,
+                               SCHEMA_DOC_HOSPITAL, SCHEMA_DOC_FHIR)
 import cost_tracker
 import schema_check
 from approval import (ApprovalStore, APPROVE, REJECT, ESCALATE,
@@ -66,6 +67,23 @@ GOLD_DB = os.environ.get("HOSPITAL_GOLD_DB", "medallion/hospital_gold.duckdb")
 POLICY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicare_policy.yaml")
 CAPABILITY = "analytics.query_aggregate"
 _REFRESH_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medallion", "REFRESH.json")
+
+# Datasets the service can answer against. Each pairs a Gold database with the
+# schema doc the planner must use for it -- they MUST stay in sync (a schema doc
+# describing tables the database lacks makes every query fail silently).
+FHIR_GOLD_DB = os.environ.get("FHIR_GOLD_DB", "medallion/fhir_gold.duckdb")
+DATASETS = {
+    "hospital": {"db": GOLD_DB, "schema_doc": SCHEMA_DOC_HOSPITAL,
+                 "label": "Hospital quality (CMS)"},
+    "fhir": {"db": FHIR_GOLD_DB, "schema_doc": SCHEMA_DOC_FHIR,
+             "label": "Clinical records (FHIR)"},
+}
+DEFAULT_DATASET = os.environ.get("PLANNER_SCHEMA", "hospital").lower()
+
+
+def _dataset(name: Optional[str]) -> str:
+    n = (name or DEFAULT_DATASET).lower()
+    return n if n in DATASETS and os.path.exists(DATASETS[n]["db"]) else DEFAULT_DATASET
 
 # Human-readable provenance for the "What's inside" view. Descriptive only.
 _DATASET_SOURCES = {
@@ -158,7 +176,9 @@ _LOCK = threading.Lock()
 async def lifespan(app: FastAPI):
     runtime = AgentRuntime()
     runtime.load_policy(POLICY_PATH)
-    _analytics = AnalyticsQueryTool(db_path=GOLD_DB, seed_demo=False)
+    _analytics = AnalyticsQueryTool(
+        db_path=GOLD_DB, seed_demo=False,
+        db_paths={k: v["db"] for k, v in DATASETS.items()})
     runtime.register_tool(_analytics)
     _STATE["runtime"] = runtime
     _STATE["analytics_tool"] = _analytics
@@ -214,7 +234,14 @@ def _root():
 
 @app.get("/ui", include_in_schema=False)
 def _ui():
-    return FileResponse(os.path.join(_WEB_DIR, "index.html"), media_type="text/html")
+    # no-store: the UI is a single file that changes often, and a stale cached copy
+    # silently strips new behaviour (buttons that do nothing) while looking fine.
+    # Always serve the current page.
+    return FileResponse(
+        os.path.join(_WEB_DIR, "index.html"),
+        media_type="text/html",
+        headers={"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -223,11 +250,13 @@ def _ui():
 class QueryRequest(BaseModel):
     question: str = Field(..., examples=["Which hospitals give the best value, high quality and low cost?"])
     backend: Optional[str] = Field(None, description="data backend: local (default) | databricks")
+    dataset: Optional[str] = Field(None, description="dataset: hospital | fhir")
 
 
 class SqlRequest(BaseModel):
     sql: str = Field(..., examples=["SELECT facility_name, star_rating FROM gold_hospital_profile WHERE star_rating = 5 LIMIT 10"])
     backend: Optional[str] = Field(None, description="data backend: local (default) | databricks")
+    dataset: Optional[str] = Field(None, description="dataset: hospital | fhir")
 
 
 class ProposeRequest(BaseModel):
@@ -258,6 +287,9 @@ class GovernedResponse(BaseModel):
     rows: Optional[list] = None
     planner_metrics: Optional[dict] = None   # per-call latency, tokens, est cost
     backend: Optional[str] = None            # which data backend served the query
+    dataset: Optional[str] = None            # which dataset answered
+    unanswerable: Optional[str] = None       # set when the dataset cannot answer
+    suggest_dataset: Optional[str] = None    # a dataset that might answer instead
 
 
 # ---------------------------------------------------------------------------
@@ -292,14 +324,38 @@ def interpret_result(result: Any, sql: str) -> dict:
         "columns": out.get("columns"),
         "rows": out.get("rows"),
         "backend": out.get("backend"),
+        "dataset": out.get("dataset"),
     }
 
 
-def run_governed_sql(sql: str, backend: Optional[str] = None) -> dict:
+def _unanswerable(out: dict) -> Optional[str]:
+    """Detect a planner refusal dressed up as a result row.
+
+    When a question cannot be answered from the active dataset the model returns
+    a single explanatory string (ideally `... AS unanswerable`). Surfacing that as
+    a normal answer is misleading -- it looks like the question WAS answered -- so
+    callers get an explicit signal instead.
+    """
+    cols, rows = out.get("columns") or [], out.get("rows") or []
+    if len(cols) != 1 or len(rows) != 1:
+        return None
+    name = str(cols[0]).lower()
+    value = rows[0].get(cols[0])
+    if not isinstance(value, str):
+        return None
+    if "unanswerable" in name or "error" in name or "message" in name:
+        return value
+    return None
+
+
+def run_governed_sql(sql: str, backend: Optional[str] = None,
+                     dataset: Optional[str] = None) -> dict:
     runtime = _STATE["runtime"]
     params: dict[str, Any] = {"sql": sql}
     if backend:
         params["backend"] = backend
+    if dataset:
+        params["dataset"] = dataset
     with _LOCK:
         result = runtime.execute_tool(CAPABILITY, params)
     return interpret_result(result, sql)
@@ -341,6 +397,9 @@ def ui_config(request: Request) -> dict:
         "auth_required": bool(API_KEY),
         "is_local": is_local,
         "prefill_key": API_KEY if (is_local and API_KEY) else None,
+        "datasets": [{"id": k, "label": v["label"],
+                      "available": os.path.exists(v["db"])} for k, v in DATASETS.items()],
+        "default_dataset": DEFAULT_DATASET,
     }
 
 
@@ -352,12 +411,13 @@ def auth_check() -> dict:
 
 
 @app.get("/schema")
-def schema() -> dict:
-    return {"capability": CAPABILITY, "schema": SCHEMA_DOC}
+def schema(dataset: Optional[str] = None) -> dict:
+    ds = _dataset(dataset)
+    return {"capability": CAPABILITY, "dataset": ds, "schema": DATASETS[ds]["schema_doc"]}
 
 
 @app.get("/datasets")
-def datasets() -> dict:
+def datasets(dataset: Optional[str] = None) -> dict:
     """What the agent is pulling from: the active Gold dataset, its tables + row
     counts, when it was last built/refreshed, and monthly-refresh status. Powers
     the 'What's inside' view. Read-only, no auth (like /health).
@@ -365,22 +425,26 @@ def datasets() -> dict:
     Table names come from the schema doc (the guard blocks information_schema);
     row counts run THROUGH the guard (run_governed_sql), so nothing bypasses it.
     """
-    active = os.environ.get("PLANNER_SCHEMA", "hospital")
+    active = _dataset(dataset)
+    db = DATASETS[active]["db"]
     info: dict[str, Any] = {
         "active_dataset": active,
+        "available_datasets": [{"id": k, "label": v["label"],
+                                "available": os.path.exists(v["db"])}
+                               for k, v in DATASETS.items()],
         "source": _DATASET_SOURCES.get(active, {}),
-        "gold_db": GOLD_DB,
-        "gold_db_present": os.path.exists(GOLD_DB),
+        "gold_db": db,
+        "gold_db_present": os.path.exists(db),
         "last_built": None,
         "tables": [],
         "refresh": None,
         "backends": _STATE["analytics_tool"].backends() if _STATE.get("analytics_tool") else None,
     }
-    if os.path.exists(GOLD_DB):
-        ts = os.path.getmtime(GOLD_DB)
+    if os.path.exists(db):
+        ts = os.path.getmtime(db)
         info["last_built"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    for t in sorted(schema_check.tables_in_schema_doc(SCHEMA_DOC)):
-        res = run_governed_sql(f"SELECT count(*) AS n FROM {t}")
+    for t in sorted(schema_check.tables_in_schema_doc(DATASETS[active]["schema_doc"])):
+        res = run_governed_sql(f"SELECT count(*) AS n FROM {t}", dataset=active)
         rows = res.get("rows") or []
         info["tables"].append({"table": t, "rows": rows[0].get("n") if rows else None})
     if os.path.exists(_REFRESH_PATH):
@@ -395,7 +459,7 @@ def datasets() -> dict:
 @app.post("/raw-sql", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
 @limiter.limit(RATE_LIMIT_READ)
 def raw_sql(request: Request, req: SqlRequest) -> dict:
-    return run_governed_sql(req.sql, req.backend)
+    return run_governed_sql(req.sql, req.backend, _dataset(req.dataset))
 
 
 @app.post("/query", response_model=GovernedResponse, dependencies=[Depends(require_api_key)])
@@ -409,10 +473,19 @@ def query(request: Request, req: QueryRequest) -> dict:
             "reason": f"planner not configured: {_STATE.get('planner_error')}",
         }
     try:
-        sql, metrics = planner.generate_sql_with_metrics(req.question)
+        ds = _dataset(req.dataset)
+        sql, metrics = planner.generate_sql_with_metrics(
+            req.question, schema_doc=DATASETS[ds]["schema_doc"])
     except Exception as e:
         return {"allowed": False, "decided_by": "policy", "reason": f"planner error: {e}"}
-    out = run_governed_sql(sql, req.backend)
+    out = run_governed_sql(sql, req.backend, ds)
+    note = _unanswerable(out)
+    if note:
+        out["unanswerable"] = note
+        other = next((k for k in DATASETS
+                      if k != ds and os.path.exists(DATASETS[k]["db"])), None)
+        out["suggest_dataset"] = other
+        out["rows"], out["columns"], out["row_count"] = [], [], 0
     out["planner_metrics"] = metrics.as_dict()
     cost_tracker.record(metrics.as_dict(), question=req.question)
     return out
