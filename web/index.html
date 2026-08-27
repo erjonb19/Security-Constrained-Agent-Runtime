@@ -181,6 +181,8 @@
       <div class="askfoot">
         <span class="seglabel">Mode</span>
         <div class="seg" id="segMode"><button data-m="query" class="on">Question</button><button data-m="raw-sql">SQL</button></div>
+        <span class="seglabel" title="Which body of data to ask about.">Dataset</span>
+        <div class="seg" id="segDataset"></div>
         <span class="seglabel" title="Where the data is read from. Both hold the same tables and obey the same rules.">Read from</span>
         <div class="seg" id="segBackend">
           <button data-b="local" class="on" title="A local database file on this machine — fast, no cloud.">This computer</button>
@@ -254,7 +256,7 @@
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const KEY="ci_access_key";
-let MODE="query", BACKEND="local";
+let MODE="query", BACKEND="local", DATASET=null;
 
 /* ---------- settings drawer ---------- */
 function openDrawer(){ $("drawer").classList.add("on"); $("scrim").classList.add("on"); $("key").focus(); }
@@ -292,6 +294,12 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
 (async function boot(){
   let cfg={};
   try{ cfg=await (await fetch("/ui-config")).json(); }catch(_){}
+  if(Array.isArray(cfg.datasets)){
+    DATASET=cfg.default_dataset||cfg.datasets[0].id;
+    $("segDataset").innerHTML=cfg.datasets.map(x=>
+      `<button data-d="${esc(x.id)}" class="${x.id===DATASET?"on":""}" ${x.available?"":"disabled title='not built on this server'"}>${esc(x.label.split(" (")[0])}</button>`).join("");
+    renderStarters();
+  } else { renderStarters(); }
   if(!cfg.auth_required){ setConn("ok","Open access"); return; }
   // On this machine the server's own key is authoritative: always use it, even if
   // a stale/wrong key was saved earlier from another environment.
@@ -322,6 +330,13 @@ $("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
   MODE=b.dataset.m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x===b));
   $("q").placeholder = MODE==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
                                         : "e.g. Which hospitals deliver the best value — high quality at lower cost?"; };
+$("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return;
+  DATASET=b.dataset.d; [...$("segDataset").children].forEach(x=>x.classList.toggle("on",x===b));
+  loaded.data=0; const ph=DATASET==="fhir"
+    ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
+    : "e.g. Which hospitals deliver the best value — high quality at lower cost?";
+  if(MODE!=="raw-sql") $("q").placeholder=ph;
+  renderStarters(); };
 $("segBackend").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
   BACKEND=b.dataset.b; [...$("segBackend").children].forEach(x=>x.classList.toggle("on",x===b)); };
 
@@ -336,13 +351,27 @@ const CASES=[
   {tag:"Value analysis",t:"Contracting",d:"Identify high-quality, lower-cost providers for value-based agreements.",
    q:"Which hospitals give the best value: high quality and low Medicare spending per beneficiary?"},
 ];
-$("starters").innerHTML=CASES.slice(0,4).map((c,i)=>
-  `<button class="starter" data-i="${i}"><b>${esc(c.tag)}</b><span>${esc(c.q.length>92?c.q.slice(0,89)+"…":c.q)}</span></button>`).join("");
-$("starters").onclick=e=>{const b=e.target.closest(".starter"); if(!b)return; $("q").value=CASES[+b.dataset.i].q; $("q").focus();};
-$("useBody").innerHTML=CASES.map((c,i)=>
-  `<div class="usecase"><h3>${esc(c.t)}</h3><p>${esc(c.d)}</p><button class="try" data-i="${i}">Run this question →</button></div>`).join("");
+const FHIR_CASES=[
+  {tag:"Population health",t:"Condition prevalence",d:"How common is a condition across the patient population.",
+   q:"How many distinct patients have a diagnosis of viral sinusitis?"},
+  {tag:"Utilization",t:"Encounter patterns",d:"Understand how patients are using care.",
+   q:"What are the most common encounter types, and how many of each?"},
+  {tag:"Demographics",t:"Population mix",d:"Who is in the population, by age and gender.",
+   q:"How many patients are there by gender?"},
+  {tag:"Medications",t:"Prescribing patterns",d:"Which medications are prescribed most often.",
+   q:"What are the 10 most frequently prescribed medications?"},
+];
+function activeCases(){ return DATASET==="fhir" ? FHIR_CASES : CASES; }
+function renderStarters(){
+  const cs=activeCases();
+  $("starters").innerHTML=cs.map((c,i)=>
+    `<button class="starter" data-i="${i}"><b>${esc(c.tag)}</b><span>${esc(c.q.length>92?c.q.slice(0,89)+"…":c.q)}</span></button>`).join("");
+  $("useBody").innerHTML=cs.map((c,i)=>
+    `<div class="usecase"><h3>${esc(c.t)}</h3><p>${esc(c.d)}</p><button class="try" data-i="${i}">Run this question →</button></div>`).join("");
+}
+$("starters").onclick=e=>{const b=e.target.closest(".starter"); if(!b)return; $("q").value=activeCases()[+b.dataset.i].q; $("q").focus();};
 $("useBody").onclick=e=>{const b=e.target.closest(".try"); if(!b)return;
-  $("q").value=CASES[+b.dataset.i].q; MODE="query"; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m==="query")); show("ask"); run();};
+  $("q").value=activeCases()[+b.dataset.i].q; MODE="query"; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m==="query")); show("ask"); run();};
 
 /* ---------- ask ---------- */
 function fmt(v){ if(v===null||v===undefined)return "—";
@@ -410,6 +439,7 @@ function renderAnswer(d){
       <pre>${esc(JSON.stringify(d,null,2))}</pre></details>`;
   const m=d.planner_metrics;
   h+=`<div class="foot">
+      <span>Dataset <b>${esc(d.dataset||DATASET||"—")}</b></span>
       <span>Source <b>${esc(d.backend||BACKEND)}</b></span>
       <span>Decision <b>${esc(d.decided_by||"—")}</b></span>
       ${m?`<span>Model <b>${esc(m.model)}</b></span><span>Time <b>${esc(m.latency_ms)} ms</b></span><span>Cost <b>$${esc(m.est_cost_usd??0)}</b></span>`:""}
@@ -424,7 +454,7 @@ async function run(){
   const btn=$("go"); btn.disabled=true; btn.textContent="Working…";
   $("answer").innerHTML=`<div class="card pad muted">Consulting the data… <span class="small">(a sleeping warehouse can take up to a minute)</span></div>`;
   try{
-    const body=MODE==="raw-sql"?{sql:v,backend:BACKEND}:{question:v,backend:BACKEND};
+    const body=MODE==="raw-sql"?{sql:v,backend:BACKEND,dataset:DATASET}:{question:v,backend:BACKEND,dataset:DATASET};
     const r=await fetch("/"+MODE,{method:"POST",
       headers:{"Content-Type":"application/json","X-API-Key":($("key").value||"").trim()},body:JSON.stringify(body)});
     if(r.status===401){ setConn("bad","Key needed");
@@ -446,7 +476,7 @@ $("q").addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter"
 /* ---------- data view ---------- */
 async function loadData(){
   try{
-    const d=await (await fetch("/datasets")).json();
+    const d=await (await fetch("/datasets"+(DATASET?"?dataset="+encodeURIComponent(DATASET):""))).json();
     const s=d.source||{}, b=d.backends||{};
     const total=(d.tables||[]).reduce((a,t)=>a+(t.rows||0),0);
     const r=d.refresh;
@@ -477,7 +507,7 @@ async function loadData(){
         </tbody></table></div>
         <details class="audit" style="border-top:none;margin-top:12px"><summary>Full data dictionary</summary><pre id="schemaBox" style="margin:10px 0 0">…</pre></details>
       </div>`;
-    const sc=await (await fetch("/schema")).json();
+    const sc=await (await fetch("/schema"+(DATASET?"?dataset="+encodeURIComponent(DATASET):""))).json();
     if($("schemaBox")) $("schemaBox").textContent=sc.schema||"(unavailable)";
   }catch(e){ $("dataBody").innerHTML=`<div class="card pad">Could not load: ${esc(e.message||e)}</div>`; }
 }

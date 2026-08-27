@@ -29,13 +29,29 @@ from sql_guard import validate_query
 
 class AnalyticsQueryTool(BaseTool):
     def __init__(self, db_path: str = ":memory:", seed_demo: bool = True,
-                 row_cap: int = 1000, ledger=None):
+                 row_cap: int = 1000, ledger=None, db_paths: Dict[str, str] | None = None):
         self._db_path = db_path
         self._row_cap = row_cap
         self._ledger = ledger          # optional QueryLedger for groundedness
         self._con = duckdb.connect(db_path)
         if seed_demo:
             self._seed_demo_gold()
+        # Multi-dataset support: one tool can serve several Gold databases (e.g.
+        # hospital + clinical), chosen per request via params['dataset']. The
+        # default connection above stays the fallback, so existing callers that
+        # pass only db_path are unaffected.
+        self._cons: Dict[str, Any] = {}
+        _default = os.path.abspath(db_path) if db_path != ":memory:" else None
+        for name, path in (db_paths or {}).items():
+            if not os.path.exists(path):
+                continue
+            # DuckDB refuses a second connection to the same file with different
+            # settings, so reuse the primary connection when the path matches
+            # rather than opening a conflicting read-only one.
+            if _default and os.path.abspath(path) == _default:
+                self._cons[name] = self._con
+            else:
+                self._cons[name] = duckdb.connect(path, read_only=True)
         # Per-request backend selection. DuckDB (self._con) is always available;
         # Databricks is built when its creds are present (or DATA_BACKEND=databricks).
         # Both run the SAME guard-approved safe_sql -- the guard runs FIRST either
@@ -57,6 +73,10 @@ class AnalyticsQueryTool(BaseTool):
     @property
     def name(self) -> str:
         return "analytics.query_aggregate"
+
+    def datasets(self) -> list:
+        """Dataset names this tool can serve (for the UI's dataset switcher)."""
+        return sorted(self._cons)
 
     def backends(self) -> Dict[str, Any]:
         """Which data backends this tool can serve -- for visibility endpoints."""
@@ -94,7 +114,9 @@ class AnalyticsQueryTool(BaseTool):
                                             f"{self._databricks_error or 'set DATABRICKS_* env vars'}")
                 cols, rows = self._databricks.execute(decision.safe_sql)
             else:
-                cur = self._con.execute(decision.safe_sql)
+                ds = params.get("dataset")
+                con = self._cons.get(ds, self._con) if ds else self._con
+                cur = con.execute(decision.safe_sql)
                 cols = [d[0] for d in cur.description] if cur.description else []
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
@@ -106,6 +128,7 @@ class AnalyticsQueryTool(BaseTool):
                 output={
                     "query_id": query_id,
                     "backend": backend,
+                    "dataset": params.get("dataset"),
                     "safe_sql": decision.safe_sql,
                     "row_count": len(rows),
                     "columns": cols,
