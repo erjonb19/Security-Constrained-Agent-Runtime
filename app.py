@@ -281,6 +281,8 @@ class GovernedResponse(BaseModel):
     planner_metrics: Optional[dict] = None   # per-call latency, tokens, est cost
     backend: Optional[str] = None            # which data backend served the query
     dataset: Optional[str] = None            # which dataset answered
+    unanswerable: Optional[str] = None       # set when the dataset cannot answer
+    suggest_dataset: Optional[str] = None    # a dataset that might answer instead
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +319,26 @@ def interpret_result(result: Any, sql: str) -> dict:
         "backend": out.get("backend"),
         "dataset": out.get("dataset"),
     }
+
+
+def _unanswerable(out: dict) -> Optional[str]:
+    """Detect a planner refusal dressed up as a result row.
+
+    When a question cannot be answered from the active dataset the model returns
+    a single explanatory string (ideally `... AS unanswerable`). Surfacing that as
+    a normal answer is misleading -- it looks like the question WAS answered -- so
+    callers get an explicit signal instead.
+    """
+    cols, rows = out.get("columns") or [], out.get("rows") or []
+    if len(cols) != 1 or len(rows) != 1:
+        return None
+    name = str(cols[0]).lower()
+    value = rows[0].get(cols[0])
+    if not isinstance(value, str):
+        return None
+    if "unanswerable" in name or "error" in name or "message" in name:
+        return value
+    return None
 
 
 def run_governed_sql(sql: str, backend: Optional[str] = None,
@@ -450,6 +472,13 @@ def query(request: Request, req: QueryRequest) -> dict:
     except Exception as e:
         return {"allowed": False, "decided_by": "policy", "reason": f"planner error: {e}"}
     out = run_governed_sql(sql, req.backend, ds)
+    note = _unanswerable(out)
+    if note:
+        out["unanswerable"] = note
+        other = next((k for k in DATASETS
+                      if k != ds and os.path.exists(DATASETS[k]["db"])), None)
+        out["suggest_dataset"] = other
+        out["rows"], out["columns"], out["row_count"] = [], [], 0
     out["planner_metrics"] = metrics.as_dict()
     cost_tracker.record(metrics.as_dict(), question=req.question)
     return out

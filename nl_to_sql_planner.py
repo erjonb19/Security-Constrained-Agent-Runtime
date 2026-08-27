@@ -301,6 +301,10 @@ Rules:
   guarantees the same rows come back in the same order every run, even when several
   hospitals share the same value.
 - Lower is better for readmission rates and ED times; higher is better for star_rating.
+- If the question CANNOT be answered from the schema above (it asks about data this
+  dataset does not contain), do not invent columns and do not dress the refusal up
+  as a result. Return exactly one statement of this shape, and nothing else:
+      SELECT 'short reason' AS unanswerable
 """
 
 

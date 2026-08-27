@@ -410,7 +410,25 @@ function summarize(d){
 }
 
 function renderAnswer(d){
-  const el=$("answer"); const ok=!!d.allowed;
+  const el=$("answer");
+  // A dataset that cannot answer is NOT an answer -- never dress it up as one.
+  if(d.unanswerable){
+    const other=d.suggest_dataset;
+    const label=other==="fhir"?"Clinical records":other==="hospital"?"Hospital quality":other;
+    el.innerHTML=`<div class="card"><div class="trust warn">
+        <span class="pill warn">Can't answer</span>
+        <small>This dataset doesn't contain what the question asks for</small></div>
+      <div class="pad"><div style="font-family:var(--serif);font-size:18.5px;line-height:1.5">${esc(d.unanswerable)}</div>
+      <p class="small muted" style="margin:12px 0 0">You're asking the <b>${esc(d.dataset==="fhir"?"Clinical records":"Hospital quality")}</b> dataset.
+      ${other?`This question looks like it belongs to <b>${esc(label)}</b>.`:""}</p>
+      ${other?`<button class="try" id="switchDs" style="margin-top:10px">Switch to ${esc(label)} and retry →</button>`:""}
+      </div></div>`;
+    if(other){ $("switchDs").onclick=()=>{
+      const b=[...$("segDataset").children].find(x=>x.dataset.d===other);
+      if(b){ b.click(); } run(); }; }
+    el.scrollIntoView({behavior:"smooth",block:"nearest"}); return;
+  }
+  const ok=!!d.allowed;
   const cls=ok?"":"deny";
   let h=`<div class="card"><div class="trust ${cls}">
       <span class="pill ${cls}">${ok?"Answered":"Refused"}</span>

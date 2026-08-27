@@ -331,11 +331,22 @@ def main():
     total_runs = len(active_cases) * runs
     correct_runs = sum(c["correct_runs"] for c in case_results)
     run_accuracy = correct_runs / total_runs
+    # Accuracy among runs that ACTUALLY EXECUTED. Provider errors (429/5xx/no
+    # credits) say nothing about correctness, so leaving them in the denominator
+    # makes a partial outage look like an accuracy regression. The outage rule
+    # below still catches the case where too few runs completed to conclude
+    # anything.
+    provider_error_runs_ = failure_counts.get(F_PROVIDER_ERROR, 0)
+    completed_runs = total_runs - provider_error_runs_
+    completed_accuracy = (correct_runs / completed_runs) if completed_runs else 0.0
     case_pass_rate = n_pass / len(active_cases)
 
     print("\n" + "=" * 60)
     print(f"cases passed (majority-correct): {n_pass}/{len(active_cases)}  ({case_pass_rate:.0%})")
     print(f"run-level accuracy:              {correct_runs}/{total_runs}  ({run_accuracy:.0%})")
+    if provider_error_runs_:
+        print(f"accuracy among completed runs:   {correct_runs}/{completed_runs}  "
+              f"({completed_accuracy:.0%})   [{provider_error_runs_} runs never reached the provider]")
     print("per tier (run-level):")
     for tier in sorted(tier_totals):
         c, t = tier_totals[tier]
@@ -363,7 +374,7 @@ def main():
                        provider_error_runs >= PROVIDER_OUTAGE_FRACTION * total_runs)
     if provider_outage:
         status = "provider_unavailable"
-    elif run_accuracy >= THRESHOLD:
+    elif completed_accuracy >= THRESHOLD:
         status = "pass"
     else:
         status = "fail"
@@ -379,6 +390,8 @@ def main():
         "runs_per_case": runs,
         "case_pass_rate": round(case_pass_rate, 4),
         "run_accuracy": round(run_accuracy, 4),
+        "completed_accuracy": round(completed_accuracy, 4),
+        "completed_runs": completed_runs,
         "provider_error_runs": provider_error_runs,
         "tier_accuracy": {str(t): round(v[0]/v[1], 4) for t, v in sorted(tier_totals.items())},
         "failure_counts": dict(failure_counts),
@@ -409,9 +422,9 @@ def main():
         sys.exit(EXIT_PROVIDER_UNAVAILABLE)
 
     # eval gate
-    gate = "PASS" if run_accuracy >= THRESHOLD else "FAIL"
-    print(f"eval gate (>= {THRESHOLD:.0%}): {gate}")
-    sys.exit(EXIT_OK if run_accuracy >= THRESHOLD else EXIT_REGRESSION)
+    gate = "PASS" if completed_accuracy >= THRESHOLD else "FAIL"
+    print(f"eval gate (>= {THRESHOLD:.0%} of completed runs): {gate}")
+    sys.exit(EXIT_OK if completed_accuracy >= THRESHOLD else EXIT_REGRESSION)
 
 
 if __name__ == "__main__":
