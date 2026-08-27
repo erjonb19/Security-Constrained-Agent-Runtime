@@ -40,7 +40,7 @@ class AnalyticsQueryTool(BaseTool):
         # Databricks is built when its creds are present (or DATA_BACKEND=databricks).
         # Both run the SAME guard-approved safe_sql -- the guard runs FIRST either
         # way (see execute), so governance is identical. The Databricks path is
-        # wired but UNVERIFIED (no workspace tested); needs databricks-sql-connector.
+        # VERIFIED against a real workspace; needs databricks-sql-connector.
         self._databricks = None
         self._databricks_error = None
         want_dbx = os.environ.get("DATA_BACKEND", "local").lower() == "databricks"

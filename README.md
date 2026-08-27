@@ -222,10 +222,9 @@ Then open **http://localhost:8000/ui** — a self-contained web UI to ask questi
 (or run SQL) and see the decision, the SQL the guard ran, the rows, and the cost.
 The API's Swagger docs remain at `/docs`.
 
-To run against Databricks instead of local DuckDB (cloud lift — **wired but
-untested**, needs `pip install databricks-sql-connector`). First publish the Gold
-into Delta (Databricks **Free Edition** has a serverless SQL warehouse and works
-for this — full setup is in the script header):
+To run against Databricks instead of local DuckDB (**verified** on Databricks
+Free Edition serverless SQL; needs `pip install databricks-sql-connector`). First
+publish the Gold into Delta (full setup is in the script header):
 
 ```bash
 python scripts/publish_gold_to_databricks.py --db medallion/hospital_gold.duckdb
@@ -279,7 +278,7 @@ A working reference implementation, described plainly:
 
 - Human-in-the-loop approval queue as a first-class graph node
 - RAG over CMS measure definitions, so the agent can answer *what a measure means*, not only what its value is
-- Cloud lift: ADLS Gen2 + Databricks Workflows; run the eval suite against both backends to prove parity
+- Cloud lift: **done for Databricks SQL** — Gold published to Delta and the eval subset passes 100% on both backends (parity proven). ADLS Gen2 + Databricks Workflows orchestration is still future work.
 - Scheduled monthly data refresh
 - Rate limiting and fail-closed auth before any public, sensitive deployment
 

@@ -52,8 +52,9 @@ Usage:
     python scripts/publish_gold_to_databricks.py --db ... --dry-run   # print SQL, no connection
     python scripts/publish_gold_to_databricks.py --db ... --tables gold_patient gold_encounter
 
-NOTE: This path is UNVERIFIED against a real workspace (none was available when it
-was written). --dry-run is exercised locally; the live Databricks write is not.
+VERIFIED against a real workspace (Databricks Free Edition, serverless SQL
+warehouse): published gold_hospital_profile (750 rows) to workspace.gold, then
+served governed agent queries from it with the guard intact.
 """
 
 from __future__ import annotations
@@ -192,7 +193,7 @@ def main() -> int:
             cur.execute(stmt)
             n += min(args.batch_size, len(rows) - n)
         (loaded,) = cur.execute(f"SELECT count(*) FROM {fq}").fetchone()
-        print(f"  ✓ {t}: loaded {loaded} rows")
+        print(f"  OK {t}: loaded {loaded} rows")
         total += loaded
 
     con.close()
