@@ -148,7 +148,7 @@
   <nav id="nav">
     <button data-v="ask" class="on">Ask</button>
     <button data-v="data">Data</button>
-    <button data-v="uses">Use cases</button>
+    <button data-v="uses">Guide</button>
     <button data-v="trust">Trust</button>
     <button data-v="usage">Usage</button>
   </nav>
@@ -192,6 +192,7 @@
       </div>
     </div>
 
+    <div id="dsHint" class="small muted" style="margin-top:10px;padding:9px 13px;background:var(--paper-2);border:1px solid var(--rule);border-radius:9px"></div>
     <div class="starters" id="starters"></div>
     <div id="answer" class="answer"></div>
   </section>
@@ -204,8 +205,67 @@
 
   <!-- ============ USE CASES ============ -->
   <section class="view" id="v-uses">
-    <div class="hero"><h2>Where this creates value</h2><p>Common provider and payer workflows. Select one to run it.</p></div>
-    <div class="card pad" id="useBody"></div>
+    <div class="hero"><h2>Guide</h2><p>Which dataset to ask, and how to ask it.</p></div>
+
+    <div class="card pad">
+      <div class="eyebrow">Step 1 &mdash; choose the right dataset</div>
+      <p class="small muted" style="margin:0 0 14px">These are two separate bodies of data. A question about patients cannot be answered by hospital data, and vice versa.</p>
+      <div class="grid">
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Hospital quality</h3>
+          <div class="small muted" style="margin-bottom:9px">750 U.S. hospitals &middot; public CMS data</div>
+          <div class="small" style="margin-bottom:4px"><b>Contains:</b> star ratings, 30-day readmission rates, Medicare spend per patient, emergency-department wait and boarding times, by facility and state.</div>
+          <div class="small" style="margin:9px 0 4px"><b>Ask about:</b> facilities, quality, cost, geography.</div>
+          <ul class="small muted" style="margin:0 0 9px 16px;padding:0">
+            <li>Which hospitals have the worst readmission rates?</li>
+            <li>Best value: high quality, low cost?</li>
+            <li>Longest psychiatric ED boarding times?</li>
+          </ul>
+          <div class="small" style="color:var(--red)"><b>Cannot answer:</b> anything about individual patients, diagnoses, medications or lab results.</div>
+        </div>
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Clinical records</h3>
+          <div class="small muted" style="margin-bottom:9px">1,180 patients &middot; ~331,000 records &middot; synthetic (no real PHI)</div>
+          <div class="small" style="margin-bottom:4px"><b>Contains:</b> patients, encounters/visits, diagnoses, medications, procedures and lab observations.</div>
+          <div class="small" style="margin:9px 0 4px"><b>Ask about:</b> patients, conditions, treatments, utilisation.</div>
+          <ul class="small muted" style="margin:0 0 9px 16px;padding:0">
+            <li>How many patients by gender?</li>
+            <li>How many distinct patients have viral sinusitis?</li>
+            <li>Most frequently prescribed medications?</li>
+          </ul>
+          <div class="small" style="color:var(--red)"><b>Cannot answer:</b> hospital ratings, readmission rates or facility costs.</div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:16px">Ask the wrong one and nothing breaks &mdash; you&rsquo;ll get a <b>Can&rsquo;t answer</b> card with a one-click button to switch and retry.</div>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Step 2 &mdash; question or SQL?</div>
+      <div class="grid">
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Question <span class="badge" style="vertical-align:middle">recommended</span></h3>
+          <p class="small muted" style="margin:0">Type plain English. The assistant writes the query for you. <b>Use this unless you specifically want to write SQL.</b></p>
+          <p class="small muted" style="margin:8px 0 0"><i>&ldquo;Which hospitals give the best value?&rdquo;</i></p>
+        </div>
+        <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
+          <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">SQL</h3>
+          <p class="small muted" style="margin:0">For analysts who know the tables. You write the query; the security layer still checks it before it runs.</p>
+          <p class="small muted" style="margin:8px 0 0"><code>SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10</code></p>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:12px">The column names are on the <b>Data</b> tab, under &ldquo;Full data dictionary&rdquo;.</div>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Step 3 &mdash; where should it read from?</div>
+      <p class="small muted" style="margin:0 0 6px"><b>This computer</b> &mdash; a local database file. Fast, no cloud, always available.</p>
+      <p class="small muted" style="margin:0"><b>Databricks cloud</b> &mdash; the same tables in your cloud warehouse. Identical answers and identical security; the first query may take a moment while the warehouse wakes up.</p>
+    </div>
+
+    <div class="card pad" style="margin-top:16px">
+      <div class="eyebrow">Example workflows for the selected dataset</div>
+      <div id="useBody"></div>
+    </div>
   </section>
 
   <!-- ============ TRUST ============ -->
@@ -298,7 +358,7 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
     DATASET=cfg.default_dataset||cfg.datasets[0].id;
     $("segDataset").innerHTML=cfg.datasets.map(x=>
       `<button data-d="${esc(x.id)}" class="${x.id===DATASET?"on":""}" ${x.available?"":"disabled title='not built on this server'"}>${esc(x.label.split(" (")[0])}</button>`).join("");
-    renderStarters();
+    setDataset(DATASET);   // paints the hint + starters for the initial dataset
   } else { renderStarters(); }
   if(!cfg.auth_required){ setConn("ok","Open access"); return; }
   // On this machine the server's own key is authoritative: always use it, even if
@@ -340,6 +400,10 @@ function setDataset(id){
   if(MODE!=="raw-sql") $("q").placeholder = id==="fhir"
     ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
     : "e.g. Which hospitals deliver the best value — high quality at lower cost?";
+  const hint=$("dsHint");
+  if(hint) hint.innerHTML = id==="fhir"
+    ? "<b>Clinical records</b> &mdash; 1,180 patients, ~331,000 records. Ask about patients, diagnoses, medications, visits and lab results. <span class='muted'>Not hospital ratings or costs.</span>"
+    : "<b>Hospital quality</b> &mdash; 750 U.S. hospitals. Ask about ratings, readmissions, cost and emergency-department times. <span class='muted'>Not individual patients or diagnoses.</span>";
   try{ renderStarters(); }catch(err){ console.error("starters",err); }
 }
 $("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return; setDataset(b.dataset.d); };
