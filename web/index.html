@@ -326,17 +326,23 @@ function show(v){
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>show(b.dataset.v));
 
 /* ---------- segmented controls ---------- */
-$("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
-  MODE=b.dataset.m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x===b));
-  $("q").placeholder = MODE==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
-                                        : "e.g. Which hospitals deliver the best value — high quality at lower cost?"; };
-$("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return;
-  DATASET=b.dataset.d; [...$("segDataset").children].forEach(x=>x.classList.toggle("on",x===b));
-  loaded.data=0; const ph=DATASET==="fhir"
+function setMode(m){
+  MODE=m; [...$("segMode").children].forEach(x=>x.classList.toggle("on",x.dataset.m===m));
+  $("q").placeholder = m==="raw-sql" ? "SELECT facility_name, star_rating FROM gold_hospital_profile LIMIT 10"
+    : (DATASET==="fhir" ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
+                        : "e.g. Which hospitals deliver the best value — high quality at lower cost?");
+}
+$("segMode").onclick=e=>{ const b=e.target.closest("button"); if(!b)return; setMode(b.dataset.m); };
+function setDataset(id){
+  if(!id) return;
+  DATASET=id; loaded.data=0;
+  [...$("segDataset").children].forEach(x=>x.classList.toggle("on",x.dataset.d===id));
+  if(MODE!=="raw-sql") $("q").placeholder = id==="fhir"
     ? "e.g. How many distinct patients have a diagnosis of viral sinusitis?"
     : "e.g. Which hospitals deliver the best value — high quality at lower cost?";
-  if(MODE!=="raw-sql") $("q").placeholder=ph;
-  renderStarters(); };
+  try{ renderStarters(); }catch(err){ console.error("starters",err); }
+}
+$("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return; setDataset(b.dataset.d); };
 $("segBackend").onclick=e=>{ const b=e.target.closest("button"); if(!b)return;
   BACKEND=b.dataset.b; [...$("segBackend").children].forEach(x=>x.classList.toggle("on",x===b)); };
 
@@ -423,9 +429,7 @@ function renderAnswer(d){
       ${other?`This question looks like it belongs to <b>${esc(label)}</b>.`:""}</p>
       ${other?`<button class="try" id="switchDs" style="margin-top:10px">Switch to ${esc(label)} and retry →</button>`:""}
       </div></div>`;
-    if(other){ $("switchDs").onclick=()=>{
-      const b=[...$("segDataset").children].find(x=>x.dataset.d===other);
-      if(b){ b.click(); } run(); }; }
+    if(other){ $("switchDs").onclick=()=>{ setDataset(other); setMode("query"); run(); }; }
     el.scrollIntoView({behavior:"smooth",block:"nearest"}); return;
   }
   const ok=!!d.allowed;
@@ -469,6 +473,17 @@ function renderAnswer(d){
 
 async function run(){
   const v=$("q").value.trim(); if(!v)return;
+  // SQL mode expects SQL. Typing a plain question here produces a scary
+  // "unparseable SQL" guard denial; catch it first and offer the obvious fix.
+  if(MODE==="raw-sql" && !/^\s*(select|with)/i.test(v)){
+    $("answer").innerHTML=`<div class="card"><div class="trust warn">
+        <span class="pill warn">That's a question, not SQL</span>
+        <small>You're in SQL mode</small></div>
+      <div class="pad"><p style="margin:0">SQL mode expects a statement starting with <b>SELECT</b>. It looks like you typed a question.</p>
+      <button class="try" id="toQuestion" style="margin-top:10px">Ask it as a question instead →</button></div></div>`;
+    $("toQuestion").onclick=()=>{ setMode("query"); run(); };
+    return;
+  }
   const btn=$("go"); btn.disabled=true; btn.textContent="Working…";
   $("answer").innerHTML=`<div class="card pad muted">Consulting the data… <span class="small">(a sleeping warehouse can take up to a minute)</span></div>`;
   try{
