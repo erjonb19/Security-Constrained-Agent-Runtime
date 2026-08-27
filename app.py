@@ -326,6 +326,24 @@ def health() -> dict:
     }
 
 
+@app.get("/ui-config", include_in_schema=False)
+def ui_config(request: Request) -> dict:
+    """Bootstrap config for the web UI.
+
+    When the browser is on THIS machine (loopback), hand it the API key so local
+    use needs no setup. That leaks nothing: anyone on the host can already read
+    .env. Remote callers (e.g. the public deploy) never receive it and must enter
+    a key, so the data endpoints stay protected.
+    """
+    client = request.client
+    is_local = bool(client) and client.host in {"127.0.0.1", "::1", "localhost"}
+    return {
+        "auth_required": bool(API_KEY),
+        "is_local": is_local,
+        "prefill_key": API_KEY if (is_local and API_KEY) else None,
+    }
+
+
 @app.get("/auth-check", dependencies=[Depends(require_api_key)])
 def auth_check() -> dict:
     """Cheap authenticated ping so the UI can validate a key without running a

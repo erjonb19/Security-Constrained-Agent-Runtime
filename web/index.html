@@ -163,6 +163,17 @@
       <p>Ask in plain English. Every answer is checked by a security layer before any data is read &mdash; and you can see exactly how it was produced.</p>
     </div>
 
+    <div class="card pad" id="connectCard" style="display:none;border-color:var(--copper);background:var(--copper-wash);margin-bottom:18px">
+      <div class="eyebrow" style="color:#8A4A22">One-time setup</div>
+      <h3 style="font-family:var(--serif);font-size:20px;margin:0 0 6px;font-weight:600">Enter your access key to begin</h3>
+      <p class="small" style="margin:0 0 12px;color:#6E3E20">This service is protected. Each environment has its own key &mdash; a key from another server won&rsquo;t work here.</p>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <input id="key2" type="password" placeholder="paste access key" autocomplete="off" style="flex:1;min-width:210px" />
+        <button class="go" id="connect2" style="margin:0">Connect</button>
+      </div>
+      <div class="hint" id="key2Result" style="color:#6E3E20"></div>
+    </div>
+
     <div class="card askbox">
       <div class="pad" style="padding-bottom:6px">
         <textarea id="q" placeholder="e.g. Which hospitals deliver the best value — high quality at lower cost?"></textarea>
@@ -262,8 +273,29 @@ async function testKey(quiet){
     setConn("bad","Error"); return false;
   }catch(e){ setConn("bad","Offline"); if(!quiet) $("keyResult").textContent="Could not reach the service."; return false; }
 }
-$("saveKey").onclick=async()=>{ localStorage.setItem(KEY,$("key").value.trim()); await testKey(false); };
-testKey(true);
+$("saveKey").onclick=async()=>{ localStorage.setItem(KEY,$("key").value.trim()); const ok=await testKey(false); if(ok){ $("connectCard").style.display="none"; setTimeout(closeDrawer,700);} };
+
+/* Inline connect card (shown only when a key is actually needed) */
+$("connect2").onclick=async()=>{
+  const v=$("key2").value.trim(); $("key").value=v; localStorage.setItem(KEY,v);
+  const ok=await testKey(true);
+  if(ok){ $("connectCard").style.display="none"; $("key2Result").innerHTML='<span style="color:var(--green)">✓ Connected.</span>'; }
+  else { $("key2Result").innerHTML='<span style="color:var(--red)">That key was rejected by '+esc(location.host)+'.</span>'; }
+};
+$("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").click(); });
+
+/* Bootstrap: on your own machine the server hands us the key, so there is no
+   setup at all. Remote users get the inline connect card. */
+(async function boot(){
+  let cfg={};
+  try{ cfg=await (await fetch("/ui-config")).json(); }catch(_){}
+  if(!cfg.auth_required){ setConn("ok","Open access"); return; }
+  if(cfg.prefill_key && !localStorage.getItem(KEY)){
+    localStorage.setItem(KEY,cfg.prefill_key); $("key").value=cfg.prefill_key;
+  } else if(localStorage.getItem(KEY)){ $("key").value=localStorage.getItem(KEY); }
+  const ok=await testKey(true);
+  if(!ok){ $("connectCard").style.display="block"; }
+})();
 
 /* ---------- nav ---------- */
 const loaded={};
@@ -359,7 +391,8 @@ async function run(){
         <p style="margin:12px 0 0">This service needs an access key before it can answer.</p>
         <p class="small muted">Each environment has its own key — one from a different server won't work here.</p>
         <button class="try" id="openS" style="margin-top:8px">Enter access key →</button></div>`;
-      $("openS").onclick=openDrawer; return; }
+      $("connectCard").style.display="block";
+      $("openS").onclick=()=>{ $("connectCard").scrollIntoView({behavior:"smooth"}); $("key2").focus(); }; return; }
     if(r.status===429){ $("answer").innerHTML=`<div class="card pad"><div class="pill warn">Slow down</div>
         <p style="margin:12px 0 0">Too many requests in a short period. Wait a moment and try again.</p></div>`; return; }
     renderAnswer(await r.json()); setConn("ok","Connected");
