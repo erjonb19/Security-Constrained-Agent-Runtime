@@ -54,9 +54,9 @@ jobs:
 
       - name: Validate refreshed Gold (hospital eval gate)
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          PLANNER_PROVIDER: "groq"
-          PLANNER_MIN_INTERVAL_SEC: "12"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PLANNER_PROVIDER: "gemini"
+          PLANNER_MIN_INTERVAL_SEC: "5"
           EVAL_SUBSET: "1"
           EVAL_RUNS: "1"
         # Exit 1 = accuracy regression -> the refreshed data broke something, do
