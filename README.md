@@ -189,6 +189,7 @@ When the primary provider is down, re-run against a **fallback provider** with
 `--provider` (or `PLANNER_PROVIDER`); it needs that provider's API key set:
 
 ```bash
+python eval_harness.py --provider gemini      # needs GEMINI_API_KEY (free tier)
 python eval_harness.py --provider groq        # needs GROQ_API_KEY
 python eval_harness.py --provider xai         # needs XAI_API_KEY (xAI/Grok)
 python eval_harness.py --provider anthropic   # needs ANTHROPIC_API_KEY
@@ -246,7 +247,7 @@ streamlit run aiops_panel.py       # observability dashboard
 Switching provider or dataset:
 
 ```bash
-$env:PLANNER_PROVIDER="groq"        # cerebras | groq | xai | anthropic
+$env:PLANNER_PROVIDER="gemini"      # gemini | groq | cerebras | xai | anthropic
 $env:PLANNER_SCHEMA="fhir"          # hospital | fhir
 $env:PLANNER_MIN_INTERVAL_SEC="12"  # pace calls for free/low-tier rate limits (Groq free tier ~8K TPM)
 ```

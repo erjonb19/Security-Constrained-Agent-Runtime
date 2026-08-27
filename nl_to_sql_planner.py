@@ -84,7 +84,7 @@ PROVIDERS = {
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "api_key_env": "GEMINI_API_KEY",
-        "model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        "model": os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest"),
     },
 }
 # One line to switch providers, or set PLANNER_PROVIDER in the environment.
