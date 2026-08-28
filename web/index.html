@@ -213,7 +213,7 @@
       <div class="grid">
         <div style="border:1px solid var(--rule);border-radius:10px;padding:15px">
           <h3 style="font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600">Hospital quality</h3>
-          <div class="small muted" style="margin-bottom:9px">750 U.S. hospitals &middot; public CMS data</div>
+          <div class="small muted" style="margin-bottom:9px">U.S. hospitals &middot; public CMS data &middot; refreshed monthly</div>
           <div class="small" style="margin-bottom:4px"><b>Contains:</b> star ratings, 30-day readmission rates, Medicare spend per patient, emergency-department wait and boarding times, by facility and state.</div>
           <div class="small" style="margin:9px 0 4px"><b>Ask about:</b> facilities, quality, cost, geography.</div>
           <ul class="small muted" style="margin:0 0 9px 16px;padding:0">
@@ -403,7 +403,7 @@ function setDataset(id){
   const hint=$("dsHint");
   if(hint) hint.innerHTML = id==="fhir"
     ? "<b>Clinical records</b> &mdash; 1,180 patients, ~331,000 records. Ask about patients, diagnoses, medications, visits and lab results. <span class='muted'>Not hospital ratings or costs.</span>"
-    : "<b>Hospital quality</b> &mdash; 750 U.S. hospitals. Ask about ratings, readmissions, cost and emergency-department times. <span class='muted'>Not individual patients or diagnoses.</span>";
+    : "<b>Hospital quality</b> &mdash; U.S. hospitals (CMS, refreshed monthly). Ask about ratings, readmissions, cost and emergency-department times. <span class='muted'>Not individual patients or diagnoses.</span>";
   try{ renderStarters(); }catch(err){ console.error("starters",err); }
 }
 $("segDataset").onclick=e=>{ const b=e.target.closest("button"); if(!b||b.disabled)return; setDataset(b.dataset.d); };

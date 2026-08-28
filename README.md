@@ -79,7 +79,7 @@ Two lakehouses, queried through identical guardrails.
 
 Built from the CMS Provider Data Catalog with a two-catalog fetcher (`fetch_cms.py`) and a DuckDB medallion pipeline (`build_hospital_gold.py`).
 
-`gold_hospital_profile` — 750 hospitals across twelve Northeast and Mid-Atlantic states, joined on CMS facility ID: overall star rating, Medicare spending per beneficiary, five condition-level 30-day readmission rates, and four ED-flow measures including median psychiatric ED boarding time. A geographic Gold (region utilization, cost, anomaly) is built by `build_medallion.py`.
+`gold_hospital_profile` — ~750 hospitals across twelve Northeast and Mid-Atlantic states (the exact count changes with each monthly CMS refresh), joined on CMS facility ID: overall star rating, Medicare spending per beneficiary, five condition-level 30-day readmission rates, and four ED-flow measures including median psychiatric ED boarding time. A geographic Gold (region utilization, cost, anomaly) is built by `build_medallion.py`.
 
 ### FHIR clinical lakehouse
 

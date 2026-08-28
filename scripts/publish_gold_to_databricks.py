@@ -42,7 +42,7 @@ SETUP (Databricks Free Edition -- forever-free, includes a serverless SQL wareho
        $env:DATA_BACKEND="databricks"
        uvicorn app:app --port 8000      # then ask a question at /ui
 
-Start with the hospital Gold (750 rows -- seconds). The FHIR Gold has a 223k-row
+Start with the hospital Gold (~750 rows -- seconds). The FHIR Gold has a 223k-row
 table (gold_observation); loading it over the SQL connector via INSERT is slow --
 use --max-rows for a quick smoke test, or expect several minutes for the full load.
 
@@ -53,7 +53,7 @@ Usage:
     python scripts/publish_gold_to_databricks.py --db ... --tables gold_patient gold_encounter
 
 VERIFIED against a real workspace (Databricks Free Edition, serverless SQL
-warehouse): published gold_hospital_profile (750 rows) to workspace.gold, then
+warehouse): published gold_hospital_profile to workspace.gold, then
 served governed agent queries from it with the guard intact.
 """
 
