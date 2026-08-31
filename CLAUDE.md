@@ -10,10 +10,10 @@ Repo: github.com/erjonb19/Security-Constrained-Agent-Runtime
 
 ## Architecture
 - **API layer:** FastAPI service, API-key auth
-- **Planner:** LangGraph state graph with bounded self-correction; multi-provider LLM abstraction selectable via `PLANNER_PROVIDER` (Cerebras gpt-oss-120b, Groq gpt-oss-120b, xAI/Grok, Anthropic). CI evals default to Groq (gpt-oss-120b, free tier). Notes: Groq's llama-3.3-70b-versatile is deprecated — do not reintroduce it. `xai` (`api.x.ai`, `XAI_API_KEY` starting `xai-`) is a *different vendor* from `groq` (`api.groq.com`, `GROQ_API_KEY` starting `gsk_`); don't conflate them.
+- **Planner:** LangGraph state graph with bounded self-correction; multi-provider LLM abstraction selectable via `PLANNER_PROVIDER` (Gemini, Cerebras gpt-oss-120b, Groq gpt-oss-120b, xAI/Grok, Anthropic). **CI and both eval suites run on Gemini** (`gemini-flash-lite-latest`, free tier) — see Validation below; the other providers stay selectable as fallbacks. Note: if `PLANNER_PROVIDER` is unset the code falls back to `cerebras` (`nl_to_sql_planner.py`), so set it explicitly. Notes: Groq's llama-3.3-70b-versatile is deprecated — do not reintroduce it. `xai` (`api.x.ai`, `XAI_API_KEY` starting `xai-`) is a *different vendor* from `groq` (`api.groq.com`, `GROQ_API_KEY` starting `gsk_`); don't conflate them.
 - **Guard layer:** validates all generated SQL before execution. SELECT-only, table allow-list, row caps, PHI redaction.
 - **Data layer:** backend-agnostic — LocalDuckDBBackend and DatabricksBackend. The query path (`AnalyticsQueryTool`) now routes execution through the selected backend (`DATA_BACKEND=databricks` switches to Delta); the guard still validates SQL first. The Databricks path is **VERIFIED** against a real workspace (Free Edition serverless SQL): gold published to `workspace.gold` Delta, agent queries served with the guard intact (a catalog query is still DENIED on that path), and the 6-case eval subset passed 100% for backend parity.
-- **Web UI:** `web/index.html` served at `/ui` (root `/` redirects there) — a self-contained page calling `/query` and `/raw-sql` with `X-API-Key`.
+- **Web UI:** `web/index.html` served at `/ui` (root `/` redirects there) — a self-contained page calling `/query` and `/raw-sql` with `X-API-Key`. Six views: Ask, **Review** (the approval queue), Data, Guide, Trust, Usage. The Review view drives `/propose`, `/approvals`, and `/approvals/{id}`, and is the human-in-the-loop surface — it is the only place the four decision types (approve / reject / escalate / approve_with_edits) are exercised outside tests.
 - **Data:** CMS hospital-quality lakehouse in DuckDB (~750 hospitals, 12 states; the exact count moves with each monthly CMS refresh -- do not hardcode it) + FHIR lakehouse from 1,180 Synthea R4 bundles, medallion architecture
 - **Human-in-the-loop:** approval checkpoint with SQLite persistence
 - **Cost/latency tracking:** per-call and aggregate
@@ -47,11 +47,13 @@ Repo: github.com/erjonb19/Security-Constrained-Agent-Runtime
 1. Reframe demo questions as provider workflows
 2. Measure graph vs single-shot performance using the eval suite
 3. RAG + vector retrieval over FHIR data
-4. Databricks lift
-5. Approval queue UI + expanded README
-6. MCP server: Streamable HTTP transport + OAuth 2.1 (currently stdio, Milestone 1)
+4. MCP server: Streamable HTTP transport + OAuth 2.1 (currently stdio, Milestone 1). Milestone 2 (the capability *mapping* layer, so tools stop hardcoding their capability) is the next unblocked step and needs no external decisions.
+5. Expanded README
 
-Done: schema validator (`schema_check.py`, catches PLANNER_SCHEMA/database drift — wired into graph startup).
+Done:
+- Schema validator (`schema_check.py`, catches PLANNER_SCHEMA/database drift — wired into graph startup).
+- Databricks lift — VERIFIED end-to-end on a real workspace, backend parity proven.
+- **Approval queue UI** — `web/index.html` "Review" view. The backend (`approval.py`, `approval_graph.py`, `/propose` + `/approvals*`) had been complete and unreachable from the UI; it is now driveable end to end, including the reviewer identity recorded on every decision.
 
 ## Conventions
 - Python; follow existing code style in the repo

@@ -1,12 +1,17 @@
-# Core dependencies
-pyyaml>=6.0
-jsonschema>=4.17.0
-ollama>=0.6.1
+# Core dependencies for the security runtime under src/.
+#
+# PINNED for the same reason as requirements-api.txt: these are the versions the
+# 349-test suite was verified against. Bump on purpose, in a PR, with tests green.
+
+pyyaml==6.0.3
+jsonschema==4.26.0
+ollama==0.6.2
 
 # Security and validation
-pathspec>=0.11.0
+pathspec==1.1.1
 
-# Optional: For advanced features
-# requests is used by http.fetch and PyPI queries
-requests>=2.31.0
-# gitpython>=3.1.0  # For git operations
+# requests is used by http.fetch (src/tools/http_fetch.py) and the PyPI queries
+# in src/tools/package_manager.py
+requests==2.34.2
+
+# gitpython>=3.1.0  # not used: src/tools/git_ops.py shells out to git directly

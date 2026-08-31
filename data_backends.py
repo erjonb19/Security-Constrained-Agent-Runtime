@@ -47,8 +47,12 @@ class DatabricksBackend:
         DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN
         DATABRICKS_CATALOG (default 'main'), DATABRICKS_SCHEMA (default 'gold')
 
-    Not exercised by the local deploy. Kept here so switching backends is a
-    config change, not a rewrite. Requires: pip install databricks-sql-connector
+    VERIFIED end-to-end against a real workspace (Databricks Free Edition
+    serverless SQL): Gold published to Delta, agent queries served with the guard
+    intact, and the eval subset passing 100% on both backends (parity proven).
+    The local/Render deploy still defaults to DuckDB, so switching backends is a
+    config change, not a rewrite.
+    Requires: pip install databricks-sql-connector==4.4.0
     """
     kind = "databricks-delta"
 

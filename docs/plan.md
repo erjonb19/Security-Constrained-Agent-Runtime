@@ -1,20 +1,42 @@
 # Security-Constrained Agent Runtime: Full Implementation Plan
 
-This plan is derived from [docs/DESIGN.md](DESIGN.md) and the current repo state. **Current state**: All modules under `src/` are stubs (TODO-only); no tests beyond empty `__init__.py`; dependencies are minimal (pyyaml, jsonschema, pathspec). Implementation follows the design's development phases and component specs.
+This plan is derived from [docs/DESIGN.md](DESIGN.md). It is now a **historical
+record**: Phases 1–6 are all delivered. The phase-by-phase sections below are
+kept because they document *why* each component is shaped the way it is, not
+because work remains in them.
+
+> **HISTORICAL NOTE.** This document originally opened by stating that all
+> modules under `src/` were TODO-only stubs with no tests. That was true when
+> the plan was written and has been false for a long time. It was corrected
+> after the statement was found still sitting at the top of the file.
 
 ---
 
 ## Current vs. Target State
 
-| Area | Current | Target (per DESIGN.md) |
-|------|---------|------------------------|
-| Policy | Parser, validator, defaults stubbed | YAML/JSON load, validate schema, evaluate capability + constraints |
-| Runtime | agent_runtime, policy_engine, capability stubbed | Intercept tool calls, evaluate policy, run pre/post validation, optional sandbox/approval |
-| Tools | filesystem, git_ops, http_fetch, package_manager stubbed | Concrete tools with path/endpoint/param constraints |
-| Security | injection_detector, parameter_validator, taint_tracking stubbed | Injection patterns, param/path/flag validation; taint as stretch |
-| Utils | explainer, redaction stubbed | Human-readable denials + sensitive-data redaction |
-| Audit | audit_logger stubbed | Structured JSON log of all decisions and executions |
-| Tests | Only package __init__ files | Unit, integration, security (adversarial), property-based, performance |
+Every row below reached its target. Verify with `pytest -q -m "not network"`
+(**349 passing**) and `python sql_guard.py` (adversarial guard harness).
+
+| Area | Status | Where it lives |
+|------|--------|----------------|
+| Policy | **Done** — YAML/JSON load, schema validation, capability + constraint evaluation | `src/policies/parser.py` (378 ln), `validator.py` (450), `defaults.py` |
+| Runtime | **Done** — intercepts tool calls, evaluates policy, pre/post validation, sandbox + approval hooks | `src/runtime/agent_runtime.py` (516), `policy_engine.py`, `capability.py` |
+| Tools | **Done** — filesystem, git, http_fetch, package_manager with path/endpoint/param constraints | `src/tools/` |
+| Security | **Done** — injection patterns, param/path/flag validation, and taint tracking (the Phase 6 stretch goal, delivered) | `src/security/injection_detector.py` (244), `parameter_validator.py` (347), `taint_tracking.py` (285) |
+| Utils | **Done** — human-readable denials + sensitive-data redaction | `src/utils/explainer.py`, `redaction.py` |
+| Audit | **Done** — structured JSONL of every decision and execution | `src/runtime/audit_logger.py` (588) |
+| Tests | **Done** — unit, integration, and adversarial security suites, 349 tests, no deselects in CI | `tests/unit/`, `tests/integration/`, `tests/security/` |
+
+### Built on top of the runtime (beyond the original plan)
+
+The runtime became the foundation for a governed clinical analytics agent, which
+is what the repo root now holds: the `sql_guard.py` AST validator, the
+`nl_to_sql_planner.py` multi-provider planner, the self-correcting
+`agent_graph.py` LangGraph, the `app.py` FastAPI service, two medallion
+lakehouses, a 63-case ground-truth eval suite, and a Milestone-1 guarded MCP
+server (`mcp_server.py`). See [../README.md](../README.md) and
+[../CLAUDE.md](../CLAUDE.md) — those two are the live documents; this one is
+the archive.
 
 ---
 
@@ -193,18 +215,36 @@ After Phase 1, the runtime can: load policy, evaluate capabilities, enforce path
 
 ---
 
-## Phase 6: Stretch Goals (If Time Permits)
+## Phase 6: Stretch Goals — status
 
-- **Taint tracking** [src/security/taint_tracking.py](src/security/taint_tracking.py): mark sources (user input, file read, HTTP response), propagate through tool calls, block tainted data at sinks (shell, file write, HTTP request) per policy (design §8.1).  
-- **Step-up authentication** (§8.2): optional integration with auth (OAuth, API keys, MFA) and time-limited permissions for high-risk operations.  
-- **Human-in-the-loop** (§8.3): approval queue, CLI/API for approvals, timeout and default deny, approval history in audit log; partial implementation may already exist from Phase 1.
+- **Taint tracking** (§8.1) — **DONE.** Sources marked, propagated through tool
+  calls, blocked at sinks. `src/security/taint_tracking.py`, documented in
+  [taint_tracking.md](taint_tracking.md), covered by 36 tests
+  (`tests/security/test_taint_tracking.py`, `test_taint_flow.py`).
+- **Human-in-the-loop** (§8.3) — **backend DONE, UI outstanding.** Approval queue
+  with SQLite persistence, four decision types, and HTTP endpoints exist
+  (`approval.py`, `approval_graph.py`, `app.py` `/propose` + `/approvals*`).
+  There is **no approval UI in `web/index.html`** — that is the one genuinely
+  unbuilt item from this plan.
+- **Step-up authentication** (§8.2) — **NOT STARTED.** Ties into the MCP server's
+  Milestone 4 (OAuth 2.1), see [../README_MCP_Milestone1.md](../README_MCP_Milestone1.md).
 
 ---
 
 ## Dependency and Project Fixes
 
-- **requirements.txt**: Uncomment and pin `requests` (http_fetch), `gitpython` (git_ops) when implementing those tools.  
-- **setup.py**: Ensure `entry_points` points to a callable that exists (e.g. `main` in `agent_runtime` or a dedicated CLI module).
+- **requirements.txt** — **DONE.** `requests` is pinned and used by
+  `src/tools/http_fetch.py` and `package_manager.py`. `gitpython` was *not*
+  needed: `src/tools/git_ops.py` shells out to `git` directly, so the line stays
+  commented with that reason recorded.
+- **All dependencies are now pinned** (`==`) in both requirements files, to the
+  versions the 349-test suite and both eval suites were verified against.
+  Unpinned, CI resolved latest on every run and upstream breakage arrived as a
+  mystery failure with no matching code change.
+- **setup.py** — still carries placeholder package metadata (author "Agent
+  Runtime Security Team", url `github.com/example/agent-runtime-secure`,
+  `python_requires>=3.8` while CI pins 3.11). Harmless while the project is not
+  published to PyPI; fix before it ever is.
 
 ---
 
