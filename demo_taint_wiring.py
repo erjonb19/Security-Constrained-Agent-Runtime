@@ -1,5 +1,5 @@
 """
-test_taint_wiring.py  (real CMS Gold)
+demo_taint_wiring.py  (real CMS Gold)
 =====================================
 Taint layer through the REAL runtime, on REAL Medicare data.
 
@@ -11,7 +11,7 @@ the taint tracker blocks.
 Config: taint source = analytics.get_context, taint sink = brief.commit.
 
 Run from the repo root with venv311 active:
-    python test_taint_wiring.py
+    python demo_taint_wiring.py
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ because work remains in them.
 ## Current vs. Target State
 
 Every row below reached its target. Verify with `pytest -q -m "not network"`
-(**349 passing**) and `python sql_guard.py` (adversarial guard harness).
+(**369 passing**) and `python sql_guard.py` (adversarial guard harness).
 
 | Area | Status | Where it lives |
 |------|--------|----------------|
@@ -25,7 +25,7 @@ Every row below reached its target. Verify with `pytest -q -m "not network"`
 | Security | **Done** — injection patterns, param/path/flag validation, and taint tracking (the Phase 6 stretch goal, delivered) | `src/security/injection_detector.py` (244), `parameter_validator.py` (347), `taint_tracking.py` (285) |
 | Utils | **Done** — human-readable denials + sensitive-data redaction | `src/utils/explainer.py`, `redaction.py` |
 | Audit | **Done** — structured JSONL of every decision and execution | `src/runtime/audit_logger.py` (588) |
-| Tests | **Done** — unit, integration, and adversarial security suites, 349 tests, no deselects in CI | `tests/unit/`, `tests/integration/`, `tests/security/` |
+| Tests | **Done** — unit, integration, and adversarial security suites, 369 tests, no deselects in CI | `tests/unit/`, `tests/integration/`, `tests/security/` |
 
 ### Built on top of the runtime (beyond the original plan)
 
@@ -238,7 +238,7 @@ After Phase 1, the runtime can: load policy, evaluate capabilities, enforce path
   needed: `src/tools/git_ops.py` shells out to `git` directly, so the line stays
   commented with that reason recorded.
 - **All dependencies are now pinned** (`==`) in both requirements files, to the
-  versions the 349-test suite and both eval suites were verified against.
+  versions the 369-test suite and both eval suites were verified against.
   Unpinned, CI resolved latest on every run and upstream breakage arrived as a
   mystery failure with no matching code change.
 - **setup.py** — still carries placeholder package metadata (author "Agent

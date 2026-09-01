@@ -1,12 +1,12 @@
 """
-test_cms_sources.py
+demo_cms_sources.py
 ===================
 Manually tests every CMS Provider Data Catalog source on our shortlist. For each
 dataset identifier it resolves the live CSV via CMS's own metastore index,
 downloads the header and a few rows, and reports PASS/FAIL with the columns.
 
 Run from the repo root with venv311 active:
-    python test_cms_sources.py
+    python demo_cms_sources.py
 
 No third-party deps; uses only the standard library.
 """

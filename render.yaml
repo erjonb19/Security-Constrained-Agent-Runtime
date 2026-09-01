@@ -1,27 +1,72 @@
 # render.yaml -- Render Blueprint for the governed clinical agent API.
 # On connect, Render reads this and provisions the service automatically.
-# Secrets (CEREBRAS_API_KEY, API_KEY) are set in the dashboard, never in git.
+# Secrets (GEMINI_API_KEY, API_KEY, DATABRICKS_TOKEN) are set in the dashboard,
+# never in git -- every one of them below is `sync: false` for that reason.
 
 services:
   - type: web
     name: governed-clinical-agent
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements-api.txt
+    # The FHIR Gold is a gitignored 43 MB derived artifact, so it is downloaded
+    # rather than rebuilt: rebuilding means a few hundred MB of Synthea source
+    # expanding to ~1.4 GB on every deploy. If FHIR_GOLD_URL is unset the fetch
+    # is skipped cleanly and the service serves the hospital dataset only.
+    buildCommand: pip install -r requirements-api.txt && python scripts/fetch_fhir_gold.py
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
-      # Planner provider + key. Default is Groq (free tier). groq/gemini/cerebras/
-      # xai/anthropic are selectable via PLANNER_PROVIDER; set the matching key
-      # value in the Render dashboard (never in git).
+
+      # ---- Planner ----------------------------------------------------------
+      # Gemini, matching CI and both eval suites (verified 63/63 cases at 100%).
+      # Production previously ran Groq while everything else ran Gemini, which
+      # meant users hit the one provider the suite had not been measured on --
+      # and Groq's free tier is the one that 429s under load.
       - key: PLANNER_PROVIDER
-        value: groq
-      - key: GROQ_API_KEY
+        value: gemini
+      - key: GEMINI_API_KEY
         sync: false
-      # API key required on the data endpoints. Set the value in the dashboard.
+      # Paces planner calls so a burst queues instead of tripping the Gemini
+      # free-tier per-minute cap. This DELAYS rather than fails: with normal
+      # single-user traffic the interval never engages.
+      - key: PLANNER_MIN_INTERVAL_SEC
+        value: "5"
+
+      # ---- Auth -------------------------------------------------------------
+      # Required. app.py REFUSES to start without it unless ALLOW_OPEN_ACCESS is
+      # set, so a missing value here fails the deploy loudly rather than
+      # silently publishing the data endpoints.
       - key: API_KEY
         sync: false
-      # Path to the committed hospital Gold (already in the repo).
+
+      # ---- Data -------------------------------------------------------------
+      # Hospital Gold is committed to the repo and refreshed monthly by CI.
       - key: HOSPITAL_GOLD_DB
         value: medallion/hospital_gold.duckdb
+      - key: FHIR_GOLD_DB
+        value: medallion/fhir_gold.duckdb
+      # Download URL for the prebuilt FHIR Gold (a GitHub release asset). Leave
+      # unset to run hospital-only; the UI disables the clinical dataset itself.
+      - key: FHIR_GOLD_URL
+        sync: false
+
+      # ---- Data backend -----------------------------------------------------
+      # DuckDB stays the DEFAULT: it is local, fast, and always available. These
+      # credentials additionally allow the UI's per-query "Databricks cloud"
+      # selector to work in production, proving backend parity live. The guard
+      # runs first on both paths, so governance is identical either way.
+      # Leave these unset and the selector simply reports Databricks as not
+      # configured -- the service is unaffected.
+      - key: DATA_BACKEND
+        value: local
+      - key: DATABRICKS_SERVER_HOSTNAME
+        sync: false
+      - key: DATABRICKS_HTTP_PATH
+        sync: false
+      - key: DATABRICKS_TOKEN
+        sync: false
+      - key: DATABRICKS_CATALOG
+        value: workspace
+      - key: DATABRICKS_SCHEMA
+        value: gold

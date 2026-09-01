@@ -1,6 +1,6 @@
 # Dependencies for the FastAPI service, planner, graph, and eval harness.
 #
-# PINNED deliberately. These are the exact versions the full test suite (349
+# PINNED deliberately. These are the exact versions the full test suite (369
 # tests) and both eval suites were verified against. Unpinned, CI resolves the
 # latest release on every run, so a breaking upstream change (fastapi, langgraph,
 # sqlglot, openai) arrives as a mystery CI failure with no matching code change.
@@ -18,8 +18,11 @@ langgraph-checkpoint-sqlite==3.1.1
 slowapi==0.1.10
 python-dotenv==1.2.2
 
-# Only needed when DATA_BACKEND=databricks. The Databricks path is VERIFIED
-# end-to-end against a real workspace (Free Edition serverless SQL); it is left
-# out of the default install because the local/Render deploy runs DuckDB and the
-# connector pulls a large dependency tree.
-# databricks-sql-connector==4.4.0
+# The Databricks path is VERIFIED end-to-end against a real workspace (Free
+# Edition serverless SQL). Installed by default so the UI's per-query "Databricks
+# cloud" selector works in production -- the connector must be present for the
+# backend to be offered at all, even though DATA_BACKEND stays 'local'.
+# analytics_query_tool.py imports it lazily and degrades to a clear
+# "not configured" message if the credentials are absent, so installing it is
+# safe even on deploys that never use it.
+databricks-sql-connector==4.4.0

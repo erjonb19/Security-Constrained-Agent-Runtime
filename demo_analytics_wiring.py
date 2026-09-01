@@ -1,5 +1,5 @@
 """
-test_analytics_wiring.py
+demo_analytics_wiring.py
 ========================
 Proves the analytics tool runs through your REAL runtime and policy, with two
 independent layers of control:
@@ -8,7 +8,7 @@ independent layers of control:
   Layer 2  sql_guard         -> is THIS specific query safe?
 
 Run from the repo root with venv311 active:
-    python test_analytics_wiring.py
+    python demo_analytics_wiring.py
 
 Expected:
   [1] allowed query        -> ALLOWED by policy, ALLOWED by guard, rows returned
