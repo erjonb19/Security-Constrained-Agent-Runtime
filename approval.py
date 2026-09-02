@@ -59,7 +59,14 @@ ESCALATE = "escalate"
 APPROVE_WITH_EDITS = "approve_with_edits"
 DECISIONS = {APPROVE, REJECT, ESCALATE, APPROVE_WITH_EDITS}
 
-# terminal vs. non-terminal: escalation does NOT resolve the item, it reassigns it
+# Which decisions let the action execute. The other two do not.
+#
+# NOTE on escalate: the intent was "reassign, don't resolve", but `decide()` sets
+# status='escalated', which drops the row out of `pending()`. So today escalation
+# CLOSES the item -- the person named in escalated_to has no queue of their own,
+# and the paused graph thread is never resumed. Re-queueing escalated items with
+# an owner is the follow-up; until then the UI says so plainly rather than
+# repeating the intent as if it were the behaviour.
 EXECUTES = {APPROVE, APPROVE_WITH_EDITS}
 
 

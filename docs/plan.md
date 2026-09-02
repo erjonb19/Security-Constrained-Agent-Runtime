@@ -15,7 +15,7 @@ because work remains in them.
 ## Current vs. Target State
 
 Every row below reached its target. Verify with `pytest -q -m "not network"`
-(**369 passing**) and `python sql_guard.py` (adversarial guard harness).
+(the full suite, no deselects) and `python sql_guard.py` (adversarial guard harness).
 
 | Area | Status | Where it lives |
 |------|--------|----------------|
@@ -25,7 +25,7 @@ Every row below reached its target. Verify with `pytest -q -m "not network"`
 | Security | **Done** — injection patterns, param/path/flag validation, and taint tracking (the Phase 6 stretch goal, delivered) | `src/security/injection_detector.py` (244), `parameter_validator.py` (347), `taint_tracking.py` (285) |
 | Utils | **Done** — human-readable denials + sensitive-data redaction | `src/utils/explainer.py`, `redaction.py` |
 | Audit | **Done** — structured JSONL of every decision and execution | `src/runtime/audit_logger.py` (588) |
-| Tests | **Done** — unit, integration, and adversarial security suites, 369 tests, no deselects in CI | `tests/unit/`, `tests/integration/`, `tests/security/` |
+| Tests | **Done** — unit, integration, and adversarial security suites, no deselects in CI | `tests/unit/`, `tests/integration/`, `tests/security/` |
 
 ### Built on top of the runtime (beyond the original plan)
 
@@ -221,11 +221,15 @@ After Phase 1, the runtime can: load policy, evaluate capabilities, enforce path
   calls, blocked at sinks. `src/security/taint_tracking.py`, documented in
   [taint_tracking.md](taint_tracking.md), covered by 36 tests
   (`tests/security/test_taint_tracking.py`, `test_taint_flow.py`).
-- **Human-in-the-loop** (§8.3) — **backend DONE, UI outstanding.** Approval queue
-  with SQLite persistence, four decision types, and HTTP endpoints exist
-  (`approval.py`, `approval_graph.py`, `app.py` `/propose` + `/approvals*`).
-  There is **no approval UI in `web/index.html`** — that is the one genuinely
-  unbuilt item from this plan.
+- **Human-in-the-loop** (§8.3) — **DONE.** Approval queue with SQLite
+  persistence, four decision types, and HTTP endpoints (`approval.py`,
+  `approval_graph.py`, `app.py` `/propose` + `/approvals*`), driven end to end
+  by the **Review** view in `web/index.html`.
+  *Known limitation:* `escalate` marks an item `escalated`, which removes it
+  from `pending()`. The person it was escalated *to* has no surface to act on
+  it, and the paused graph thread is never resumed. Escalation currently
+  **closes** an item rather than reassigning it; re-queueing escalated items
+  with an owner is the obvious follow-up.
 - **Step-up authentication** (§8.2) — **NOT STARTED.** Ties into the MCP server's
   Milestone 4 (OAuth 2.1), see [../README_MCP_Milestone1.md](../README_MCP_Milestone1.md).
 
@@ -238,7 +242,7 @@ After Phase 1, the runtime can: load policy, evaluate capabilities, enforce path
   needed: `src/tools/git_ops.py` shells out to `git` directly, so the line stays
   commented with that reason recorded.
 - **All dependencies are now pinned** (`==`) in both requirements files, to the
-  versions the 369-test suite and both eval suites were verified against.
+  versions the full test suite and both eval suites were verified against.
   Unpinned, CI resolved latest on every run and upstream breakage arrived as a
   mystery failure with no matching code change.
 - **setup.py** — still carries placeholder package metadata (author "Agent

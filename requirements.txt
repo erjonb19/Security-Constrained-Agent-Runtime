@@ -1,7 +1,7 @@
 # Core dependencies for the security runtime under src/.
 #
 # PINNED for the same reason as requirements-api.txt: these are the versions the
-# 369-test suite was verified against. Bump on purpose, in a PR, with tests green.
+# full test suite was verified against. Bump on purpose, in a PR, with tests green.
 
 pyyaml==6.0.3
 jsonschema==4.26.0

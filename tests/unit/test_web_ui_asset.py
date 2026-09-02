@@ -100,6 +100,35 @@ def test_queue_badge_is_hidden_when_empty(text):
     assert ".qbadge[hidden]" in text, "the qbadge needs an explicit [hidden] display rule"
 
 
+def test_review_view_detects_a_broken_approval_agent(text):
+    """GET /approvals cannot report a broken approval agent.
+
+    app.py's lifespan falls back to a bare ApprovalStore when
+    GovernedApprovalAgent fails to start, so the endpoint still returns 200 with
+    an empty queue. Keying the UI off the HTTP status therefore renders the
+    reassuring "Queue clear" over a control that is not working. /health's
+    `approvals_enabled` is the only signal that knows, so the view must consult
+    it.
+    """
+    assert "approvals_enabled" in text, (
+        "the Review view must check /health's approvals_enabled -- an empty "
+        "queue and a broken approval agent are indistinguishable at /approvals"
+    )
+    assert "r.status===503" not in text, (
+        "dead branch: /approvals never returns 503, so this can only give "
+        "false confidence"
+    )
+
+
+def test_decision_does_not_rebuild_the_whole_queue(text):
+    """Re-rendering every card after one decision discards whatever the reviewer
+    has typed into the others' Reason and edited-proposal fields."""
+    assert "setTimeout(loadReview,900)" not in text, (
+        "a full re-render after a decision wipes in-progress input on other cards"
+    )
+    assert "refreshQueueChrome" in text
+
+
 def test_proposal_block_sets_its_own_colour(text):
     """The global `pre` rule pairs light text with a dark background. `.prop`
     overrides the background to a light card, so it must set `color` too or the
