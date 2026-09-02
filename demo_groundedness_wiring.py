@@ -1,5 +1,5 @@
 """
-test_groundedness_wiring.py  (real CMS Gold)
+demo_groundedness_wiring.py  (real CMS Gold)
 ============================================
 Groundedness gate through the REAL runtime, on REAL Medicare data.
 
@@ -8,7 +8,7 @@ no matter which year/region values are in your Gold. The ungrounded claim is the
 same row's number shifted by +5, a figure no query returned.
 
 Run from the repo root with venv311 active:
-    python test_groundedness_wiring.py
+    python demo_groundedness_wiring.py
 """
 
 from __future__ import annotations

@@ -200,10 +200,12 @@ For rate-limited free/low tiers, pace calls with `--min-interval <seconds>` (or
 
 ## CI
 
-Two GitHub Actions workflows:
+Four GitHub Actions workflows:
 
-- **Quick gate on every push** — a 6-case subset spanning all tiers, ~90 seconds. Fails the build if accuracy drops below threshold.
-- **Full suite nightly** — all 35 cases, 3 runs each.
+- **Tests on every push/PR** (`tests.yml`) — the full unit / integration / adversarial-security suite, **369 tests, no deselects**. No API keys needed; only the opt-in `network` marker is skipped.
+- **Quick eval gate on every push/PR** (`eval-on-push.yml`) — a 6-case subset spanning all tiers, ~90 seconds. Fails the build if accuracy drops below threshold.
+- **Full eval nightly** (`eval-nightly.yml`) — two jobs: all 35 hospital cases, then all 28 FHIR cases (building its Gold from Synthea, cached), 3 runs each.
+- **Monthly data refresh** (`data-refresh.yml`) — re-fetches the CMS sources, rebuilds the hospital Gold, **validates it with the eval gate before committing**, and stamps `medallion/REFRESH.json`. A regression (exit 1) blocks the commit; a provider outage (exit 2) does not.
 
 Fast feedback on every change, complete coverage every night. Reports are uploaded as artifacts.
 
@@ -212,7 +214,8 @@ Fast feedback on every change, complete coverage every night. Reports are upload
 ```bash
 pip install -r requirements-api.txt
 
-$env:CEREBRAS_API_KEY="..."     # the planner's model
+$env:PLANNER_PROVIDER="gemini"  # what CI and both eval suites run on
+$env:GEMINI_API_KEY="..."       # the planner's model (free key at aistudio.google.com)
 $env:API_KEY="..."              # require a key on the data endpoints
 
 uvicorn app:app --port 8000     # http://localhost:8000/docs
@@ -221,6 +224,13 @@ uvicorn app:app --port 8000     # http://localhost:8000/docs
 Then open **http://localhost:8000/ui** — a self-contained web UI to ask questions
 (or run SQL) and see the decision, the SQL the guard ran, the rows, and the cost.
 The API's Swagger docs remain at `/docs`.
+
+The UI has six views. Most are read-only, but **Review** is the human-in-the-loop
+surface: it shows the approval queue, drafts a proposal into it (`/propose`), and
+submits any of the four decisions — approve, reject, escalate, approve with edits
+— which **resumes the paused agent** on the server. Queue depth, average wait,
+approval rate, and escalation rate are shown alongside, because a queue nobody
+drains is a governance control that exists only on paper.
 
 To run against Databricks instead of local DuckDB (**verified** on Databricks
 Free Edition serverless SQL; needs `pip install databricks-sql-connector`). First
@@ -271,16 +281,30 @@ A working reference implementation, described plainly:
 - Single-instance; queries serialized under a lock. Horizontal scaling is future work.
 - Auth is enforced when `API_KEY` is set, and the service runs **open in dev mode** when it is not (flagged loudly at startup and in `/health`). There is **no rate limiting** yet.
 - The data is public CMS data and **synthetic** Synthea patients. There is no real PHI here, and the system is not hardened for PHI or production load. The PHI-protection design is real and tested; the deployment posture is not production-grade.
-- Golds are built on demand, not on a schedule.
+- The **hospital** Gold refreshes monthly in CI; the FHIR Gold is a fixed Sep-2019
+  Synthea sample and is built on demand (it is a gitignored derived artifact, so
+  the deployed instance serves the hospital dataset only).
 - Cost figures are **estimates** (tokens × a configurable rate), not billing data.
 
 ## Roadmap
 
-- Human-in-the-loop approval queue as a first-class graph node
+**Done**
+
+- Human-in-the-loop approval queue as a first-class graph node — LangGraph
+  `interrupt` + SQLite checkpointer, four decision types, **and a review UI**.
+- Cloud lift for Databricks SQL — Gold published to Delta, eval subset passes
+  100% on both backends (parity proven). ADLS Gen2 + Databricks Workflows
+  orchestration is still future work.
+- Scheduled monthly data refresh — `data-refresh.yml`, gated on the eval suite so
+  changed source data cannot silently ship.
+- Rate limiting and fail-closed auth — per-API-key limits via slowapi; the service
+  refuses to start without `API_KEY` unless open access is set explicitly.
+
+**Next**
+
 - RAG over CMS measure definitions, so the agent can answer *what a measure means*, not only what its value is
-- Cloud lift: **done for Databricks SQL** — Gold published to Delta and the eval subset passes 100% on both backends (parity proven). ADLS Gen2 + Databricks Workflows orchestration is still future work.
-- Scheduled monthly data refresh
-- Rate limiting and fail-closed auth before any public, sensitive deployment
+- MCP server Milestone 2+: a general capability-mapping layer, then Streamable HTTP and OAuth 2.1 (currently stdio, Milestone 1)
+- Measure the self-correcting graph against single-shot on the full suite
 
 ## License
 

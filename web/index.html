@@ -134,6 +134,28 @@
         font-size:14px;font-weight:600;cursor:pointer;font-family:var(--sans)}
   .note{margin-top:16px;padding:12px 13px;border-radius:9px;background:var(--copper-wash);border:1px solid #EEDCCB;font-size:12.5px;color:#6E3E20}
   .muted{color:var(--ink-3)} .small{font-size:12.5px}
+  /* ---- approval queue ---- */
+  .qbadge{display:inline-block;margin-left:6px;min-width:17px;padding:1px 5px;border-radius:99px;background:var(--amber);
+          color:#fff;font-size:10.5px;font-weight:700;line-height:1.5;text-align:center;vertical-align:1px}
+  /* an author `display` rule beats the UA stylesheet's [hidden]{display:none},
+     so an empty queue would still paint a "0" badge without this */
+  .qbadge[hidden]{display:none}
+  /* The reviewer has to READ this before approving it, so it is a light quoted
+     document rather than a dark code block. The global `pre` rule pairs
+     color:#D9E6E1 with a dark background -- overriding one without the other
+     leaves light text on a light card, which is unreadable. */
+  .prop{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word;margin:0;
+        background:var(--paper-2);color:var(--ink);
+        border:1px solid var(--rule);border-radius:9px;padding:12px 13px}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+  .acts .try.ok{border-color:var(--green);color:var(--green-2);font-weight:600}
+  .acts .try.no{border-color:var(--rule-2);color:var(--red)}
+  .subform{margin-top:12px;padding:13px;border:1px solid var(--rule-2);border-radius:9px;background:var(--paper-2)}
+  .subform[hidden]{display:none}
+  /* Scoped to .trust on purpose: an unscoped `.kv` here silently restyled the
+     Data view, which is the only place .kv is actually used. */
+  .trust code{font-family:var(--mono);font-size:12px;background:var(--paper-2);
+              padding:1px 6px;border-radius:5px;border:1px solid var(--rule);color:var(--ink-2)}
   a{color:var(--green-2)}
   @media(max-width:720px){ .top-in{gap:12px;padding:0 16px} nav button{padding:8px 9px;font-size:13px} main{padding:24px 16px 70px} .hero h2{font-size:26px} }
 </style>
@@ -147,6 +169,7 @@
   </div>
   <nav id="nav">
     <button data-v="ask" class="on">Ask</button>
+    <button data-v="review">Review<span class="qbadge" id="qBadge" hidden>0</span></button>
     <button data-v="data">Data</button>
     <button data-v="uses">Guide</button>
     <button data-v="trust">Trust</button>
@@ -285,7 +308,11 @@
         <div><div class="badge">Result limits</div><p class="small muted" style="margin:7px 0 0">Bulk extraction is capped automatically.</p></div>
         <div><div class="badge">Fully audited</div><p class="small muted" style="margin:7px 0 0">Every decision is recorded and reviewable.</p></div>
       </div>
-      <div class="note" style="margin-top:20px"><b>See it yourself:</b> on the Ask tab, request &ldquo;list every table in the database.&rdquo; It looks harmless, and it is refused &mdash; because it reaches into the system catalog.</div>
+      <div class="note" style="margin-top:20px"><b>See it yourself:</b> on the Ask tab, switch <b>Mode</b> to <b>SQL</b> and run
+      <code style="font-family:var(--mono);font-size:12px">SELECT * FROM information_schema.tables</code>.
+      It is valid SQL, and it is still refused &mdash; because it reaches into the system catalog.
+      Ask the same thing in plain English and you see the other half of the design: the assistant
+      declines up front, because the data dictionary it was given contains no such table.</div>
     </div>
   </section>
 
@@ -293,6 +320,15 @@
   <section class="view" id="v-usage">
     <div class="hero"><h2>Usage &amp; cost</h2><p>What this service has consumed.</p></div>
     <div id="usageBody"><div class="card pad muted">Loading…</div></div>
+  </section>
+
+  <!-- ============ REVIEW (human-in-the-loop approval queue) ============ -->
+  <section class="view" id="v-review">
+    <div class="hero">
+      <h2>Approval queue</h2>
+      <p>Reading data is autonomous. Consequential actions &mdash; committing a clinical brief, escalating a case &mdash; stop here and wait for a person. <b>Nothing in this queue has run yet.</b></p>
+    </div>
+    <div id="reviewBody"><div class="card pad muted">Loading…</div></div>
   </section>
 </main>
 
@@ -360,7 +396,7 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
       `<button data-d="${esc(x.id)}" class="${x.id===DATASET?"on":""}" ${x.available?"":"disabled title='not built on this server'"}>${esc(x.label.split(" (")[0])}</button>`).join("");
     setDataset(DATASET);   // paints the hint + starters for the initial dataset
   } else { renderStarters(); }
-  if(!cfg.auth_required){ setConn("ok","Open access"); return; }
+  if(!cfg.auth_required){ setConn("ok","Open access"); refreshBadge(); return; }
   // On this machine the server's own key is authoritative: always use it, even if
   // a stale/wrong key was saved earlier from another environment.
   if(cfg.prefill_key){
@@ -371,7 +407,7 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
   if(!ok && !cfg.prefill_key && localStorage.getItem(KEY)){
     localStorage.removeItem(KEY); $("key").value=""; ok=await testKey(true);
   }
-  if(!ok){ $("connectCard").style.display="block"; }
+  if(!ok){ $("connectCard").style.display="block"; } else { refreshBadge(); }
 })();
 
 /* ---------- nav ---------- */
@@ -381,6 +417,7 @@ function show(v){
   document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-"+v));
   if(v==="data"&&!loaded.data){loaded.data=1;loadData();}
   if(v==="usage")loadUsage();
+  if(v==="review")loadReview();
   window.scrollTo({top:0,behavior:"smooth"});
 }
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>show(b.dataset.v));
@@ -539,7 +576,7 @@ async function run(){
   const v=$("q").value.trim(); if(!v)return;
   // SQL mode expects SQL. Typing a plain question here produces a scary
   // "unparseable SQL" guard denial; catch it first and offer the obvious fix.
-  if(MODE==="raw-sql" && !/^\s*(select|with)/i.test(v)){
+  if(MODE==="raw-sql" && !/^\s*(select|with)\b/i.test(v)){
     $("answer").innerHTML=`<div class="card"><div class="trust warn">
         <span class="pill warn">That's a question, not SQL</span>
         <small>You're in SQL mode</small></div>
@@ -624,6 +661,237 @@ async function loadUsage(){
       <div class="card pad" style="margin-top:16px"><details class="audit" style="border:none"><summary>Detailed metrics</summary><pre style="margin:10px 0 0">${esc(JSON.stringify(m,null,2))}</pre></details></div>`;
   }catch(e){ $("usageBody").innerHTML=`<div class="card pad">Could not load: ${esc(e.message||e)}</div>`; }
 }
+
+/* ---------- review view: the human-in-the-loop approval queue ----------
+   The backend has always been able to pause the agent on a consequential
+   action and persist that pause (approval.py + approval_graph.py, LangGraph
+   interrupt + SQLite checkpointer). Until now there was no way to SEE the
+   queue or decide an item without hand-rolling curl. This is that surface.
+
+   The four decisions are the store's own vocabulary, not new concepts:
+     approve / reject / escalate / approve_with_edits
+   escalate requires escalated_to; approve_with_edits requires edited_proposal.
+   The server enforces both -- we mirror the requirement in the form so the
+   reviewer finds out before submitting rather than after.                  */
+const RKEY="ci_reviewer";
+const authHdrs=()=>({"Content-Type":"application/json","X-API-Key":($("key").value||"").trim()});
+
+function dur(s){
+  if(s===null||s===undefined) return "—";
+  s=Math.max(0,s);
+  if(s<60) return Math.round(s)+"s";
+  if(s<3600) return Math.round(s/60)+"m";
+  if(s<86400) return (s/3600).toFixed(1)+"h";
+  return (s/86400).toFixed(1)+"d";
+}
+const waited=iso=>iso?dur((Date.now()-Date.parse(iso))/1000):"—";
+const pctOf=v=>(v===null||v===undefined)?"—":Math.round(v*100)+"%";
+
+function setBadge(n){
+  const b=$("qBadge");
+  if(n>0){ b.textContent=n; b.hidden=false; } else { b.hidden=true; }
+}
+
+/* Count the queue without rendering it. A badge that only appears once you
+   already opened the Review tab tells you nothing you did not know; the point
+   is to surface waiting work from anywhere in the app. Silent on failure --
+   an unreachable queue must not throw an error onto an unrelated view. */
+async function refreshBadge(){
+  try{
+    const r=await fetch("/approvals",{headers:authHdrs()});
+    if(!r.ok) return;
+    const d=await r.json();
+    setBadge((d.pending||[]).length);
+  }catch(_){}
+}
+
+/* One pending proposal. Everything the reviewer needs to decide is on the
+   card -- the question that produced it, the exact text proposed, and the
+   evidence behind it -- because approving something you have to go look up
+   elsewhere is how rubber-stamping starts. */
+function reviewCard(it){
+  const id=esc(it.approval_id);
+  return `<div class="card" style="margin-bottom:14px" data-card="${id}">
+    <div class="trust warn">
+      <span class="pill warn">Awaiting decision</span>
+      <small>waiting ${esc(waited(it.proposed_at))}</small>
+      <small style="margin-left:auto">capability <code>${esc(it.capability||"—")}</code> &middot; id <code>${id}</code></small>
+    </div>
+    <div class="pad">
+      ${it.question?`<div class="eyebrow">Question that produced this</div>
+        <p style="margin:0 0 14px">${esc(it.question)}</p>`:""}
+      <div class="eyebrow">Proposed action</div>
+      <pre class="prop">${esc(it.proposal||"(no proposal text recorded)")}</pre>
+
+      <div style="margin-top:14px">
+        <label class="f" for="rsn-${id}">Reason <span style="text-transform:none;letter-spacing:0;font-weight:400">(recorded with the decision)</span></label>
+        <input id="rsn-${id}" type="text" placeholder="why you are deciding this way" style="width:100%" />
+      </div>
+
+      <div class="acts">
+        <button class="try ok" data-act="approve" data-id="${id}">Approve</button>
+        <button class="try" data-act="edit-open" data-id="${id}">Approve with edits…</button>
+        <button class="try" data-act="esc-open" data-id="${id}">Escalate…</button>
+        <button class="try no" data-act="reject" data-id="${id}">Reject</button>
+      </div>
+
+      <div class="subform" id="edit-${id}" hidden>
+        <label class="f" for="edittxt-${id}">Edited proposal &mdash; this text is what will execute</label>
+        <textarea id="edittxt-${id}" rows="5" style="width:100%;font-family:var(--mono);font-size:12.5px">${esc(it.proposal||"")}</textarea>
+        <div class="acts" style="margin-top:10px">
+          <button class="try ok" data-act="approve_with_edits" data-id="${id}">Approve the edited version</button>
+          <button class="try" data-act="edit-close" data-id="${id}">Cancel</button>
+        </div>
+      </div>
+
+      <div class="subform" id="esc-${id}" hidden>
+        <label class="f" for="escto-${id}">Escalate to &mdash; who takes this decision instead</label>
+        <input id="escto-${id}" type="text" placeholder="e.g. on-call clinician, compliance" style="width:100%" />
+        <p class="small muted" style="margin:8px 0 0">Escalating does not resolve the item; it reassigns it. The action still does not run.</p>
+        <div class="acts" style="margin-top:10px">
+          <button class="try ok" data-act="escalate" data-id="${id}">Escalate</button>
+          <button class="try" data-act="esc-close" data-id="${id}">Cancel</button>
+        </div>
+      </div>
+
+      <div class="hint" id="msg-${id}" style="margin-top:10px"></div>
+      ${it.evidence?`<details class="audit" style="margin-top:14px"><summary>Evidence behind this proposal</summary>
+        <pre style="margin:10px 0 0">${esc(it.evidence)}</pre></details>`:""}
+    </div>
+  </div>`;
+}
+
+async function loadReview(){
+  const body=$("reviewBody");
+  body.innerHTML=`<div class="card pad muted">Loading queue…</div>`;
+  let d;
+  try{
+    const r=await fetch("/approvals",{headers:authHdrs()});
+    if(r.status===401){ setConn("bad","Key needed");
+      body.innerHTML=`<div class="card pad"><div class="pill deny">Not connected</div>
+        <p style="margin:12px 0 0">The approval queue needs an access key.</p>
+        <button class="try" style="margin-top:8px" onclick="openDrawer()">Enter access key →</button></div>`;
+      setBadge(0); return; }
+    if(r.status===503){ const j=await r.json().catch(()=>({}));
+      body.innerHTML=`<div class="card pad"><div class="pill warn">Approvals unavailable</div>
+        <p style="margin:12px 0 0">The approval agent did not start, so nothing can be proposed or decided.</p>
+        <p class="small muted" style="margin:6px 0 0">${esc(j.detail||"no detail reported")}</p>
+        <p class="small muted">It needs the planner (to draft a proposal) and the SQLite checkpointer (to persist the pause). The rest of the service is unaffected.</p></div>`;
+      setBadge(0); return; }
+    d=await r.json();
+  }catch(e){
+    body.innerHTML=`<div class="card pad">Could not load the queue: ${esc(e.message||e)}</div>`; return;
+  }
+
+  const m=d.metrics||{}, pend=d.pending||[];
+  setBadge(pend.length);
+  const stats=[["awaiting review",m.pending??pend.length],["total proposals",m.total_proposals??0],
+               ["average wait",dur(m.avg_queue_seconds)],["approved",pctOf(m.approval_rate)],
+               ["escalated",pctOf(m.escalation_rate)]];
+
+  body.innerHTML=`
+    <div class="card pad" style="margin-bottom:16px">
+      <div class="grid">${stats.map(([l,v])=>
+        `<div><div class="stat">${typeof v==="number"?v.toLocaleString():esc(v)}</div>
+         <div class="statlbl">${esc(l)}</div></div>`).join("")}</div>
+      <p class="small muted" style="margin:14px 0 0">Queue latency and escalation rate are operational signals, not decoration &mdash; a queue nobody drains is a governance control that exists only on paper.</p>
+    </div>
+
+    <div class="card pad" style="margin-bottom:16px">
+      <div class="eyebrow">Reviewer</div>
+      <label class="f" for="reviewer">Your name &mdash; recorded on every decision you make</label>
+      <input id="reviewer" type="text" placeholder="e.g. e.brucaj" style="width:100%;max-width:320px" />
+      <div class="note" style="margin-top:14px">
+        <b>Send a draft to the queue.</b> Runs the agent until it drafts a consequential action, then pauses it here.
+        <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:10px">
+          <input id="propQ" type="text" placeholder="e.g. Which hospitals have the worst heart failure readmission rates?" style="flex:1;min-width:240px" />
+          <button class="go" id="propGo" style="margin:0">Draft &amp; pause</button>
+        </div>
+        <div class="hint" id="propMsg" style="color:#6E3E20"></div>
+      </div>
+    </div>
+
+    ${pend.length ? `<div class="eyebrow" style="margin-bottom:10px">${pend.length} item${pend.length===1?"":"s"} awaiting a person</div>
+                     <div id="queue">${pend.map(reviewCard).join("")}</div>`
+                  : `<div class="card pad">
+                       <span class="pill">Queue clear</span>
+                       <p style="margin:12px 0 0">Nothing is waiting for a decision.</p>
+                       <p class="small muted" style="margin:6px 0 0">This is the expected steady state. Use <b>Draft &amp; pause</b> above to put a proposal in the queue and watch the checkpoint work.</p>
+                     </div>`}`;
+
+  $("reviewer").value=localStorage.getItem(RKEY)||"";
+  $("reviewer").addEventListener("change",e=>localStorage.setItem(RKEY,e.target.value.trim()));
+  $("propGo").onclick=propose;
+  $("propQ").addEventListener("keydown",e=>{ if(e.key==="Enter") propose(); });
+}
+
+async function propose(){
+  const q=$("propQ").value.trim(); if(!q) return;
+  const btn=$("propGo"), msg=$("propMsg");
+  btn.disabled=true; btn.textContent="Drafting…"; msg.textContent="Running the agent to the checkpoint…";
+  try{
+    const r=await fetch("/propose",{method:"POST",headers:authHdrs(),body:JSON.stringify({question:q})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ msg.innerHTML=`<span style="color:var(--red)">${esc(j.detail||("HTTP "+r.status))}</span>`; return; }
+    msg.innerHTML=`<span style="color:var(--green)">✓ Paused and queued${j.approval_id?" as "+esc(j.approval_id):""}.</span>`;
+    setTimeout(loadReview,600);
+  }catch(e){ msg.innerHTML=`<span style="color:var(--red)">${esc(e.message||e)}</span>`; }
+  finally{ btn.disabled=false; btn.textContent="Draft & pause"; }
+}
+
+/* Submitting a decision RESUMES the paused graph on the server. approve and
+   approve_with_edits let the action execute; reject and escalate do not. */
+async function decide(id,decision){
+  const msg=$("msg-"+id);
+  const who=($("reviewer")?.value||"").trim();
+  if(!who){ msg.innerHTML=`<span style="color:var(--red)">Enter your name above first — every decision records who made it.</span>`;
+            $("reviewer")?.focus(); return; }
+  const payload={decision,decided_by:who,reason:($("rsn-"+id)?.value||"").trim()||null};
+  if(decision==="approve_with_edits"){
+    const t=($("edittxt-"+id)?.value||"").trim();
+    if(!t){ msg.innerHTML=`<span style="color:var(--red)">An edited proposal is required.</span>`; return; }
+    payload.edited_proposal=t;
+  }
+  if(decision==="escalate"){
+    const t=($("escto-"+id)?.value||"").trim();
+    if(!t){ msg.innerHTML=`<span style="color:var(--red)">Say who this escalates to.</span>`; return; }
+    payload.escalated_to=t;
+  }
+  const card=document.querySelector(`[data-card="${id}"]`);
+  card?.querySelectorAll("button").forEach(b=>b.disabled=true);
+  msg.textContent="Resuming the paused agent…";
+  try{
+    const r=await fetch("/approvals/"+encodeURIComponent(id),
+      {method:"POST",headers:authHdrs(),body:JSON.stringify(payload)});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){
+      msg.innerHTML=`<span style="color:var(--red)">${esc(j.detail||("HTTP "+r.status))}</span>`;
+      card?.querySelectorAll("button").forEach(b=>b.disabled=false); return;
+    }
+    const ran=(decision==="approve"||decision==="approve_with_edits");
+    msg.innerHTML=`<span style="color:var(--green)">✓ Recorded as <b>${esc(decision)}</b>. `+
+      (ran?"The action executed.":"The action did not run.")+`</span>`;
+    setTimeout(loadReview,900);
+  }catch(e){
+    msg.innerHTML=`<span style="color:var(--red)">${esc(e.message||e)}</span>`;
+    card?.querySelectorAll("button").forEach(b=>b.disabled=false);
+  }
+}
+
+/* Delegated so the handlers survive every re-render of the queue. */
+$("reviewBody").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-act]"); if(!b) return;
+  const id=b.dataset.id, act=b.dataset.act;
+  // Opening or cancelling a sub-form clears any stale validation message --
+  // otherwise "Say who this escalates to." keeps accusing the reviewer after
+  // they have already backed out of escalating.
+  if(act.endsWith("-open")||act.endsWith("-close")) $("msg-"+id).innerHTML="";
+  if(act==="edit-open"){ $("edit-"+id).hidden=false; $("esc-"+id).hidden=true; $("edittxt-"+id).focus(); return; }
+  if(act==="edit-close"){ $("edit-"+id).hidden=true; return; }
+  if(act==="esc-open"){ $("esc-"+id).hidden=false; $("edit-"+id).hidden=true; $("escto-"+id).focus(); return; }
+  if(act==="esc-close"){ $("esc-"+id).hidden=true; return; }
+  decide(id,act);
+});
 </script>
 </body>
 </html>
