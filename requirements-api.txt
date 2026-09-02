@@ -1,7 +1,7 @@
 # Dependencies for the FastAPI service, planner, graph, and eval harness.
 #
-# PINNED deliberately. These are the exact versions the full test suite (369
-# tests) and both eval suites were verified against. Unpinned, CI resolves the
+# PINNED deliberately. These are the exact versions the full test suite and
+# both eval suites were verified against. Unpinned, CI resolves the
 # latest release on every run, so a breaking upstream change (fastapi, langgraph,
 # sqlglot, openai) arrives as a mystery CI failure with no matching code change.
 # Bump these on purpose, in a PR, with the suite green -- not by accident.

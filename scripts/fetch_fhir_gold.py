@@ -45,6 +45,7 @@ import os
 import shutil
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 
 DEST = os.environ.get("FHIR_GOLD_DB", os.path.join("medallion", "fhir_gold.duckdb"))
@@ -55,6 +56,7 @@ DEST = os.environ.get("FHIR_GOLD_DB", os.path.join("medallion", "fhir_gold.duckd
 DUCKDB_MAGIC_OFFSET = 8
 DUCKDB_MAGIC = b"DUCK"
 MIN_PLAUSIBLE_BYTES = 1_000_000       # the real artifact is ~43 MB
+DOWNLOAD_TIMEOUT_SEC = 60             # per-read timeout; see download()
 
 
 def _looks_like_duckdb(path: str) -> tuple[bool, str]:
@@ -83,7 +85,13 @@ def download(url: str, dest: str) -> None:
     os.close(fd)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req) as resp, open(tmp, "wb") as out:
+        # An explicit timeout matters more here than it looks. render.yaml chains
+        # this with `&&`, so a connection that opens but then stalls -- a common
+        # CDN/proxy failure -- would hang the whole build behind a frozen progress
+        # line until the platform's build timeout kills it, with nothing in the log
+        # saying why. Fail fast and loudly instead.
+        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_SEC) as resp, \
+                open(tmp, "wb") as out:
             total = 0
             while chunk := resp.read(1 << 20):
                 out.write(chunk)
@@ -130,6 +138,20 @@ def main() -> None:
             return
         print(f"WARNING: existing {args.dest} looks wrong ({detail}); replacing it.")
 
+    if args.url:
+        # A mistyped or expired FHIR_GOLD_URL is the likeliest failure here, and a
+        # bare traceback in a build log is a poor way to learn that. Name the cause.
+        try:
+            download(args.url, args.dest)
+        except urllib.error.HTTPError as e:
+            sys.exit(f"ERROR: {e.code} {e.reason} fetching {args.url}\n"
+                     f"  Check FHIR_GOLD_URL points at a published release asset.")
+        except urllib.error.URLError as e:
+            sys.exit(f"ERROR: could not reach {args.url}: {e.reason}")
+        except TimeoutError:
+            sys.exit(f"ERROR: timed out after {DOWNLOAD_TIMEOUT_SEC}s fetching {args.url}")
+        return
+
     if not args.url:
         # Deliberately exit 0. A deploy that serves only the hospital dataset is
         # a valid configuration, and the app already degrades correctly: app.py
@@ -141,8 +163,6 @@ def main() -> None:
               "  medallion/fhir_gold.duckdb as a release asset and set\n"
               "  FHIR_GOLD_URL to its download URL (see this file's header).")
         return
-
-    download(args.url, args.dest)
 
 
 if __name__ == "__main__":
