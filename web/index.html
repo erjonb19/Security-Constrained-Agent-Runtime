@@ -137,15 +137,25 @@
   /* ---- approval queue ---- */
   .qbadge{display:inline-block;margin-left:6px;min-width:17px;padding:1px 5px;border-radius:99px;background:var(--amber);
           color:#fff;font-size:10.5px;font-weight:700;line-height:1.5;text-align:center;vertical-align:1px}
+  /* an author `display` rule beats the UA stylesheet's [hidden]{display:none},
+     so an empty queue would still paint a "0" badge without this */
+  .qbadge[hidden]{display:none}
+  /* The reviewer has to READ this before approving it, so it is a light quoted
+     document rather than a dark code block. The global `pre` rule pairs
+     color:#D9E6E1 with a dark background -- overriding one without the other
+     leaves light text on a light card, which is unreadable. */
   .prop{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word;margin:0;
-        background:var(--paper-2);border:1px solid var(--rule);border-radius:9px;padding:12px 13px}
+        background:var(--paper-2);color:var(--ink);
+        border:1px solid var(--rule);border-radius:9px;padding:12px 13px}
   .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
   .acts .try.ok{border-color:var(--green);color:var(--green-2);font-weight:600}
   .acts .try.no{border-color:var(--rule-2);color:var(--red)}
   .subform{margin-top:12px;padding:13px;border:1px solid var(--rule-2);border-radius:9px;background:var(--paper-2)}
   .subform[hidden]{display:none}
-  .kv{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;font-size:12.5px;color:var(--ink-2)}
-  .kv code{font-family:var(--mono);font-size:12px;background:var(--paper-2);padding:1px 6px;border-radius:5px;border:1px solid var(--rule)}
+  /* Scoped to .trust on purpose: an unscoped `.kv` here silently restyled the
+     Data view, which is the only place .kv is actually used. */
+  .trust code{font-family:var(--mono);font-size:12px;background:var(--paper-2);
+              padding:1px 6px;border-radius:5px;border:1px solid var(--rule);color:var(--ink-2)}
   a{color:var(--green-2)}
   @media(max-width:720px){ .top-in{gap:12px;padding:0 16px} nav button{padding:8px 9px;font-size:13px} main{padding:24px 16px 70px} .hero h2{font-size:26px} }
 </style>
@@ -298,7 +308,11 @@
         <div><div class="badge">Result limits</div><p class="small muted" style="margin:7px 0 0">Bulk extraction is capped automatically.</p></div>
         <div><div class="badge">Fully audited</div><p class="small muted" style="margin:7px 0 0">Every decision is recorded and reviewable.</p></div>
       </div>
-      <div class="note" style="margin-top:20px"><b>See it yourself:</b> on the Ask tab, request &ldquo;list every table in the database.&rdquo; It looks harmless, and it is refused &mdash; because it reaches into the system catalog.</div>
+      <div class="note" style="margin-top:20px"><b>See it yourself:</b> on the Ask tab, switch <b>Mode</b> to <b>SQL</b> and run
+      <code style="font-family:var(--mono);font-size:12px">SELECT * FROM information_schema.tables</code>.
+      It is valid SQL, and it is still refused &mdash; because it reaches into the system catalog.
+      Ask the same thing in plain English and you see the other half of the design: the assistant
+      declines up front, because the data dictionary it was given contains no such table.</div>
     </div>
   </section>
 
@@ -382,7 +396,7 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
       `<button data-d="${esc(x.id)}" class="${x.id===DATASET?"on":""}" ${x.available?"":"disabled title='not built on this server'"}>${esc(x.label.split(" (")[0])}</button>`).join("");
     setDataset(DATASET);   // paints the hint + starters for the initial dataset
   } else { renderStarters(); }
-  if(!cfg.auth_required){ setConn("ok","Open access"); return; }
+  if(!cfg.auth_required){ setConn("ok","Open access"); refreshBadge(); return; }
   // On this machine the server's own key is authoritative: always use it, even if
   // a stale/wrong key was saved earlier from another environment.
   if(cfg.prefill_key){
@@ -393,7 +407,7 @@ $("key2").addEventListener("keydown",e=>{ if(e.key==="Enter") $("connect2").clic
   if(!ok && !cfg.prefill_key && localStorage.getItem(KEY)){
     localStorage.removeItem(KEY); $("key").value=""; ok=await testKey(true);
   }
-  if(!ok){ $("connectCard").style.display="block"; }
+  if(!ok){ $("connectCard").style.display="block"; } else { refreshBadge(); }
 })();
 
 /* ---------- nav ---------- */
@@ -562,7 +576,7 @@ async function run(){
   const v=$("q").value.trim(); if(!v)return;
   // SQL mode expects SQL. Typing a plain question here produces a scary
   // "unparseable SQL" guard denial; catch it first and offer the obvious fix.
-  if(MODE==="raw-sql" && !/^\s*(select|with)/i.test(v)){
+  if(MODE==="raw-sql" && !/^\s*(select|with)\b/i.test(v)){
     $("answer").innerHTML=`<div class="card"><div class="trust warn">
         <span class="pill warn">That's a question, not SQL</span>
         <small>You're in SQL mode</small></div>
@@ -678,6 +692,19 @@ function setBadge(n){
   if(n>0){ b.textContent=n; b.hidden=false; } else { b.hidden=true; }
 }
 
+/* Count the queue without rendering it. A badge that only appears once you
+   already opened the Review tab tells you nothing you did not know; the point
+   is to surface waiting work from anywhere in the app. Silent on failure --
+   an unreachable queue must not throw an error onto an unrelated view. */
+async function refreshBadge(){
+  try{
+    const r=await fetch("/approvals",{headers:authHdrs()});
+    if(!r.ok) return;
+    const d=await r.json();
+    setBadge((d.pending||[]).length);
+  }catch(_){}
+}
+
 /* One pending proposal. Everything the reviewer needs to decide is on the
    card -- the question that produced it, the exact text proposed, and the
    evidence behind it -- because approving something you have to go look up
@@ -787,7 +814,7 @@ async function loadReview(){
     ${pend.length ? `<div class="eyebrow" style="margin-bottom:10px">${pend.length} item${pend.length===1?"":"s"} awaiting a person</div>
                      <div id="queue">${pend.map(reviewCard).join("")}</div>`
                   : `<div class="card pad">
-                       <div class="pill">Queue clear</div>
+                       <span class="pill">Queue clear</span>
                        <p style="margin:12px 0 0">Nothing is waiting for a decision.</p>
                        <p class="small muted" style="margin:6px 0 0">This is the expected steady state. Use <b>Draft &amp; pause</b> above to put a proposal in the queue and watch the checkpoint work.</p>
                      </div>`}`;
@@ -855,6 +882,10 @@ async function decide(id,decision){
 $("reviewBody").addEventListener("click",e=>{
   const b=e.target.closest("button[data-act]"); if(!b) return;
   const id=b.dataset.id, act=b.dataset.act;
+  // Opening or cancelling a sub-form clears any stale validation message --
+  // otherwise "Say who this escalates to." keeps accusing the reviewer after
+  // they have already backed out of escalating.
+  if(act.endsWith("-open")||act.endsWith("-close")) $("msg-"+id).innerHTML="";
   if(act==="edit-open"){ $("edit-"+id).hidden=false; $("esc-"+id).hidden=true; $("edittxt-"+id).focus(); return; }
   if(act==="edit-close"){ $("edit-"+id).hidden=true; return; }
   if(act==="esc-open"){ $("esc-"+id).hidden=false; $("edit-"+id).hidden=true; $("escto-"+id).focus(); return; }
