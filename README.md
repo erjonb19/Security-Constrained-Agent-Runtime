@@ -190,10 +190,15 @@ Every run above is committed under `eval_runs/`:
 `eval_graph_fhir_20260816T204034Z.json`.
 
 **Infrastructure failures vs. accuracy regressions.** The harness distinguishes
-the two so a provider outage never looks like the agent getting worse. If most
-runs fail with a provider/infra error — payment (402), rate limit (429), 5xx,
-network, or timeout — the run is reported as **provider unavailable** and exits
-with a distinct code, rather than a false 0% accuracy regression:
+the two so a provider outage never looks like the agent getting worse. A run that
+fails with a provider/infra error — payment (402), rate limit (429), 5xx, network,
+or timeout — never reached the model, so it is excluded from the accuracy
+denominator rather than counted as a wrong answer. Accuracy alone is not enough
+though: a verdict computed from a handful of runs that happened to get through
+would be confident and meaningless. So the gate also requires that at least
+`MIN_COMPLETED_FRACTION` (80%) of planned runs actually completed. Below that, the
+run is reported as **provider unavailable** and exits with a distinct code, rather
+than as a false accuracy regression — or a false pass:
 
 | exit code | meaning |
 |---|---|
