@@ -133,25 +133,37 @@ non-deterministic, and a case that passes 1 of 3 is not passing — scores the
 agent's answer against the reference for **exact match**, classifies failures
 into a taxonomy, and writes a timestamped report for regression tracking.
 
-**Measured results — single-shot vs. self-correcting graph:**
+**Measured results — single-shot vs. self-correcting graph.** Latest full sweep:
+**2026-09-05 against HEAD**, 3 runs per case, Gemini `gemini-flash-lite-latest`.
 
 | | CMS hospital (35 cases) | FHIR clinical (28 cases) |
 |---|---|---|
-| Single-shot | 33/35 cases · 95% runs | 28/28 cases · 98% runs |
-| Graph (self-correcting) | **35/35 cases · 99% runs** | **28/28 cases · 99% runs** |
+| Single-shot | 35/35 cases · 100% runs | 28/28 cases · 100% runs |
+| Graph (self-correcting) | 35/35 cases · 100% runs | 28/28 cases · 99% runs † |
 
-The same finding reproduces on both datasets, which makes it a result rather than
-an anecdote: **self-correction eliminates transient tool failures and cannot
-touch plausible-but-wrong SQL.**
+† The only cell not from the 2026-09-05 sweep. It is the last clean measurement,
+`eval_graph_fhir_20260816T204034Z.json` (3 runs, 28/28 cases, 98.81% runs). The
+2026-09-05 attempt exhausted the Gemini free tier's 500-requests-per-day cap and
+returned `provider_unavailable` — inconclusive by construction, so it is not
+reported as a result.
 
-The mechanism is the point. Retry only helps when there is a *failure signal* to
-react to. A guard denial produces one — the reason is fed back into the next
-attempt and the agent revises. A query that is wrong but valid produces none: it
-runs, returns rows, and looks successful. Across both runs, every failure
-self-correction recovered was a transient denial; every failure it could not
-recover was a wrong-but-successful query. That is why the ground-truth suite
-exists alongside the retry loop, and why "100% of cases pass" is reported next to
-"99% of runs" rather than instead of it.
+**What the current sweep does and does not show.** In the August sweeps
+(`eval_single_20260803T030757Z`, 33/35 · 95%; `eval_graph_20260803T033040Z`,
+35/35 · 99%) the graph path beat single-shot, and the whole difference was
+transient tool failures that retry recovered. At HEAD that gap is gone — not
+because self-correction regressed, but because **single-shot no longer produces
+the failures it used to recover**. The hospital graph run reports
+`self-correction: 0/35 cases needed a retry (avg attempts 1.00)`: the retry loop
+was never entered, so this sweep is evidence neither for nor against it.
+
+The mechanism is still the point, and it predicts when retry can help at all.
+Retry only helps when there is a *failure signal* to react to. A guard denial
+produces one — the reason is fed back into the next attempt and the agent
+revises. A query that is wrong but valid produces none: it runs, returns rows,
+and looks successful. In the August runs every failure self-correction recovered
+was a transient denial, and every failure it could not recover was a
+wrong-but-successful query. That asymmetry is why the ground-truth suite exists
+alongside the retry loop rather than being replaced by it.
 
 Some cases exist specifically to test clinical correctness, not just SQL
 correctness. A pair of them ask the same question at different grains — how many
@@ -171,7 +183,11 @@ python eval_harness.py --provider groq              # fallback when primary is d
 python validate_fhir_bank.py                        # verify the answer key itself
 ```
 
-Reports for all four runs are committed under `eval_runs/`.
+Every run above is committed under `eval_runs/`:
+`eval_single_hospital_20260905T180442Z.json`,
+`eval_graph_hospital_20260905T181329Z.json`,
+`eval_single_fhir_20260905T182030Z.json`, and
+`eval_graph_fhir_20260816T204034Z.json`.
 
 **Infrastructure failures vs. accuracy regressions.** The harness distinguishes
 the two so a provider outage never looks like the agent getting worse. If most
