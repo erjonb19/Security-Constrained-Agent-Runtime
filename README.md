@@ -142,10 +142,12 @@ into a taxonomy, and writes a timestamped report for regression tracking.
 | Graph (self-correcting) | 35/35 cases · 100% runs | 28/28 cases · 99% runs † |
 
 † The only cell not from the 2026-09-05 sweep. It is the last clean measurement,
-`eval_graph_fhir_20260816T204034Z.json` (3 runs, 28/28 cases, 98.81% runs). The
-2026-09-05 attempt exhausted the Gemini free tier's 500-requests-per-day cap and
-returned `provider_unavailable` — inconclusive by construction, so it is not
-reported as a result.
+`eval_graph_fhir_20260816T204034Z.json` (3 runs, 28/28 cases, 98.81% runs). Two
+2026-09-05 attempts (18:32Z and 19:54Z) both exhausted the Gemini free tier's
+500-requests-per-day-per-model cap and returned `provider_unavailable` — 82/84
+and 84/84 runs respectively failed with HTTP 429 before reaching the model.
+Both are inconclusive by construction, so neither is reported as a result; this
+suite still needs a re-run once the daily quota resets.
 
 **What the current sweep does and does not show.** In the August sweeps
 (`eval_single_20260803T030757Z`, 33/35 · 95%; `eval_graph_20260803T033040Z`,
