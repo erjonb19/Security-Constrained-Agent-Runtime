@@ -200,7 +200,11 @@ though: a verdict computed from a handful of runs that happened to get through
 would be confident and meaningless. So the gate also requires that at least
 `MIN_COMPLETED_FRACTION` (80%) of planned runs actually completed. Below that, the
 run is reported as **provider unavailable** and exits with a distinct code, rather
-than as a false accuracy regression — or a false pass:
+than as a false accuracy regression — or a false pass. A provider that is plainly
+down is also detected early: after `ABORT_AFTER_CONSECUTIVE_PROVIDER_ERRORS` (12)
+consecutive infrastructure failures the remaining runs are recorded without being
+attempted, so a dead provider costs about a minute instead of a full sweep's
+worth of pacing delay:
 
 | exit code | meaning |
 |---|---|

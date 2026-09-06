@@ -91,6 +91,14 @@ OUT_DIR = "eval_runs"
 # than a pass or a false accuracy regression.
 MIN_COMPLETED_FRACTION = 0.80
 
+# Stop calling a provider that is plainly down. After this many CONSECUTIVE
+# provider errors, the remaining runs are recorded as provider errors WITHOUT
+# being attempted. The verdict is already provider_unavailable at that point, so
+# grinding through the rest only burns wall-clock and pacing delay -- four FHIR
+# graph attempts on 2026-09-05 each spent ~7 minutes making 84 doomed calls
+# against an exhausted daily quota to report what the first dozen already showed.
+ABORT_AFTER_CONSECUTIVE_PROVIDER_ERRORS = 12
+
 # Exit codes -- distinct so CI can tell a real regression from an infra outage.
 EXIT_OK = 0
 EXIT_REGRESSION = 1
@@ -327,12 +335,21 @@ def main():
     provider_error_sample = ""
     t_start = time.time()
 
+    consecutive_provider_errors = 0
+    provider_down = False
+
     for case in active_cases:
         outcomes = []
         details = []
         attempts_used = []
         for _ in range(runs):
-            if graph_agent is not None:
+            if provider_down:
+                # Provider already proven unreachable -- record the run without
+                # attempting it, so the totals stay consistent and the report is
+                # still a complete, correctly-shaped provider_unavailable.
+                mode, detail = F_PROVIDER_ERROR, "not attempted: provider unreachable"
+                attempts_used.append(1)
+            elif graph_agent is not None:
                 mode, detail, n_att = run_once_graph(case, graph_agent)
                 attempts_used.append(n_att)
             else:
@@ -346,6 +363,18 @@ def main():
             tier_totals[case["tier"]][1] += 1
             if mode == F_CORRECT:
                 tier_totals[case["tier"]][0] += 1
+            if mode == F_PROVIDER_ERROR:
+                consecutive_provider_errors += 1
+                if (not provider_down and consecutive_provider_errors
+                        >= ABORT_AFTER_CONSECUTIVE_PROVIDER_ERRORS):
+                    provider_down = True
+                    print()
+                    print(f"  [abort] {consecutive_provider_errors} consecutive "
+                          f"provider errors -- the provider is down; skipping the "
+                          f"remaining runs instead of retrying each one.")
+                    print()
+            else:
+                consecutive_provider_errors = 0
         correct = sum(1 for o in outcomes if o == F_CORRECT)
         stability = correct / runs
         # a case "passes" only if it is correct on the majority of runs
