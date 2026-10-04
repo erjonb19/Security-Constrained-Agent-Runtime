@@ -76,17 +76,30 @@ MEASURES = ["star_rating", "mspb_score", "ed_volume",
 
 # CMS footnote 4: "Data suppressed by CMS for one or more quarters."
 SUPPRESSED_FOOTNOTE = "4"
+# The CMS footnotes that explain a missing score for a normal reason:
+#   4  -- data suppressed by CMS for one or more quarters
+#   5  -- no results for this reporting period
+#   19 -- hospital is not in the CMS reporting program
+NO_DATA_FOOTNOTES = ("4", "5", "19")
 
 
 def _cms_suppressed(con, csv_path: str, measure_map: dict) -> set[str]:
     """Columns whose measure CMS suppressed outright in this release.
 
-    A measure counts as suppressed ONLY if, across the hospitals in scope, it
-    has rows, NONE of them carries a usable score, and EVERY one of them
-    carries footnote 4. That is the source file telling us the gap is
-    deliberate. A measure that is missing from the file, or whose rows are
-    empty without the footnote, is NOT suppressed -- that is what a renamed
-    measure or a broken mapping looks like, and it must keep failing the build.
+    A measure counts as suppressed ONLY if, across its in-scope rows, ALL of:
+      a) it has rows, and NONE of them carries a usable score;
+      b) EVERY row has a footnote, and every code in it is 4, 5 or 19
+         (comma-separated lists like "4, 19" are fine). A blank footnote or
+         any other code means NOT suppressed;
+      c) MORE THAN HALF of the rows carry footnote 4.
+    That is the source file telling us the gap is deliberate: CMS withheld the
+    measure, and the rows it did not mark 4 are hospitals with no results this
+    period (5) or outside the program (19). The Oct 2026 Hybrid HWR release
+    was 591 x fn4, 12 x fn5, 25 x fn19 across 628 in-scope rows.
+
+    A measure that is missing from the file, or whose rows are empty without
+    that footnote proof, is NOT suppressed -- that is what a renamed measure
+    or a broken mapping looks like, and it must keep failing the build.
     """
     cols = {r[0] for r in con.execute(
         f"DESCRIBE SELECT * FROM read_csv_auto('{csv_path}', all_varchar=true)").fetchall()}
@@ -95,19 +108,27 @@ def _cms_suppressed(con, csv_path: str, measure_map: dict) -> set[str]:
     names = ", ".join("'" + n.replace("'", "''") + "'" for n in measure_map)
     scope = (_state_clause('"State"').replace("WHERE", "AND", 1)
              if "State" in cols else "")
+    allowed = ", ".join(f"'{c}'" for c in NO_DATA_FOOTNOTES)
     rows = con.execute(f"""
-        SELECT "Measure Name",
+        WITH r AS (
+            SELECT "Measure Name" AS name, Score,
+                   list_filter(list_transform(string_split(coalesce(Footnote, ''), ','),
+                                              x -> trim(x)),
+                               x -> x <> '') AS codes
+            FROM read_csv_auto('{csv_path}', all_varchar=true)
+            WHERE "Measure Name" IN ({names}) {scope}
+        )
+        SELECT name,
                count(*) AS n,
                count({NUM('Score')}) AS scored,
-               count(*) FILTER (WHERE list_contains(
-                   list_transform(string_split(coalesce(Footnote, ''), ','), x -> trim(x)),
-                   '{SUPPRESSED_FOOTNOTE}')) AS fn4
-        FROM read_csv_auto('{csv_path}', all_varchar=true)
-        WHERE "Measure Name" IN ({names}) {scope}
-        GROUP BY "Measure Name"
+               count(*) FILTER (WHERE len(codes) > 0
+                                  AND list_has_all([{allowed}], codes)) AS fn_ok,
+               count(*) FILTER (WHERE list_contains(codes, '{SUPPRESSED_FOOTNOTE}')) AS fn4
+        FROM r
+        GROUP BY name
     """).fetchall()
-    return {measure_map[name] for name, n, scored, fn4 in rows
-            if n > 0 and scored == 0 and fn4 == n}
+    return {measure_map[name] for name, n, scored, fn_ok, fn4 in rows
+            if n > 0 and scored == 0 and fn_ok == n and 2 * fn4 > n}
 
 
 NUM = lambda c:(f"TRY_CAST(NULLIF(NULLIF(NULLIF(NULLIF(CAST({c} AS VARCHAR),"
@@ -250,7 +271,8 @@ def main(vintage: str | None = None, rebuild: bool = False,
     # This is the check the shipped Gold fails: readmit_hwr and ed_volume are
     # entirely NULL, and nothing -- not the build, not the 35-case eval -- said
     # so, because the eval's ground truth is the same empty column.
-    # A measure CMS withheld for the whole period (footnote 4 on every row) is
+    # A measure CMS withheld for the whole period (no scores; every row footnoted
+    # 4/5/19, mostly 4) is
     # reported as a WARNING instead of blocking the build -- but only when the
     # source file itself proves it. See _cms_suppressed / dq.column_has_data.
     suppressed = (_cms_suppressed(con, f"{DATA}/unplanned_visits.csv", UNPLANNED_MEASURES)
