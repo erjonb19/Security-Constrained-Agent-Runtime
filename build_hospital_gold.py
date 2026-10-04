@@ -74,7 +74,43 @@ ED_VOLUME_MEASURE = "Emergency department volume"
 MEASURES = ["star_rating", "mspb_score", "ed_volume",
             *UNPLANNED_MEASURES.values(), *TIMELY_MEASURES.values()]
 
-NUM = lambda c: (f"TRY_CAST(NULLIF(NULLIF(NULLIF(NULLIF(CAST({c} AS VARCHAR),"
+# CMS footnote 4: "Data suppressed by CMS for one or more quarters."
+SUPPRESSED_FOOTNOTE = "4"
+
+
+def _cms_suppressed(con, csv_path: str, measure_map: dict) -> set[str]:
+    """Columns whose measure CMS suppressed outright in this release.
+
+    A measure counts as suppressed ONLY if, across the hospitals in scope, it
+    has rows, NONE of them carries a usable score, and EVERY one of them
+    carries footnote 4. That is the source file telling us the gap is
+    deliberate. A measure that is missing from the file, or whose rows are
+    empty without the footnote, is NOT suppressed -- that is what a renamed
+    measure or a broken mapping looks like, and it must keep failing the build.
+    """
+    cols = {r[0] for r in con.execute(
+        f"DESCRIBE SELECT * FROM read_csv_auto('{csv_path}', all_varchar=true)").fetchall()}
+    if "Footnote" not in cols:
+        return set()
+    names = ", ".join("'" + n.replace("'", "''") + "'" for n in measure_map)
+    scope = (_state_clause('"State"').replace("WHERE", "AND", 1)
+             if "State" in cols else "")
+    rows = con.execute(f"""
+        SELECT "Measure Name",
+               count(*) AS n,
+               count({NUM('Score')}) AS scored,
+               count(*) FILTER (WHERE list_contains(
+                   list_transform(string_split(coalesce(Footnote, ''), ','), x -> trim(x)),
+                   '{SUPPRESSED_FOOTNOTE}')) AS fn4
+        FROM read_csv_auto('{csv_path}', all_varchar=true)
+        WHERE "Measure Name" IN ({names}) {scope}
+        GROUP BY "Measure Name"
+    """).fetchall()
+    return {measure_map[name] for name, n, scored, fn4 in rows
+            if n > 0 and scored == 0 and fn4 == n}
+
+
+NUM = lambda c:(f"TRY_CAST(NULLIF(NULLIF(NULLIF(NULLIF(CAST({c} AS VARCHAR),"
                 f"'Not Available'),'Not Applicable'),'N/A'),'') AS DOUBLE)")
 
 
@@ -214,8 +250,14 @@ def main(vintage: str | None = None, rebuild: bool = False,
     # This is the check the shipped Gold fails: readmit_hwr and ed_volume are
     # entirely NULL, and nothing -- not the build, not the 35-case eval -- said
     # so, because the eval's ground truth is the same empty column.
+    # A measure CMS withheld for the whole period (footnote 4 on every row) is
+    # reported as a WARNING instead of blocking the build -- but only when the
+    # source file itself proves it. See _cms_suppressed / dq.column_has_data.
+    suppressed = (_cms_suppressed(con, f"{DATA}/unplanned_visits.csv", UNPLANNED_MEASURES)
+                  | _cms_suppressed(con, f"{DATA}/timely_effective_care.csv", TIMELY_MEASURES))
     for col in MEASURES:
-        checks.append(dq.column_has_data(con, STAGING, col))
+        checks.append(dq.column_has_data(con, STAGING, col,
+                                         suppressed_by_source=col in suppressed))
         checks.append(dq.column_coverage(con, STAGING, col))
 
     errors, _ = dq.report(checks, "hospital Gold quality gates")
@@ -232,6 +274,10 @@ def main(vintage: str | None = None, rebuild: bool = False,
             f"  maps at the top of this file.\n"
             f"  To ship anyway (you are certain the data is right): "
             f"--allow-quality-failures")
+
+    if suppressed:
+        print(f"\n  CMS-suppressed this release (shipped empty, not a mapping "
+              f"problem): {', '.join(sorted(suppressed))}")
 
     # PUBLISH. The gates passed, so the staged snapshot becomes the real table.
     con.execute(f"CREATE OR REPLACE TABLE {TABLE} AS SELECT * FROM {STAGING}")
