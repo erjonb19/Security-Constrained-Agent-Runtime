@@ -112,8 +112,9 @@ def column_has_data(con, table: str, column: str,
 
     ONE EXCEPTION, AND IT IS NARROW
     CMS sometimes withholds a measure for a whole reporting period and says so
-    in the file: every row is "Not Available" with footnote 4 ("Data suppressed
-    by CMS for one or more quarters"). That happened to Hybrid HWR in the
+    in the file: every row is "Not Available", footnoted 4 ("Data suppressed
+    by CMS for one or more quarters") or another no-data reason (5, 19), with
+    4 on most rows. That happened to Hybrid HWR in the
     Oct 2026 release and stopped the whole monthly refresh. Nothing on our side
     was broken, and blocking every other measure from updating protected nothing.
 
@@ -126,7 +127,8 @@ def column_has_data(con, table: str, column: str,
     if n == 0 and suppressed_by_source:
         return Check(f"column_has_data({column})", WARN, False,
                      f"{column} is ENTIRELY NULL because CMS SUPPRESSED it this "
-                     f"period (every source row: 'Not Available', footnote 4). "
+                     f"period (every source row: 'Not Available', footnote 4/5/19, "
+                     f"mostly 4). "
                      f"Shipping with the column empty; not a mapping problem")
     return Check(f"column_has_data({column})", ERROR, n > 0,
                  f"{n} non-null values" if n else
