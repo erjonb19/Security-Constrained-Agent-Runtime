@@ -183,3 +183,32 @@ def test_report_counts_errors_and_warnings_separately(con, capsys):
 def test_report_survives_a_skipped_check(con):
     """Checks that do not apply return None, and reporting must not trip on it."""
     assert dq.report([None, None]) == (0, 0)
+
+
+# ---------------------------------------------------------------------------
+# CMS suppression: the one narrow exception to "entirely NULL is an ERROR"
+# ---------------------------------------------------------------------------
+# Oct 2026: CMS published Hybrid HWR with every row "Not Available" and
+# footnote 4 ("Data suppressed by CMS for one or more quarters"). The gate
+# blocked the whole monthly refresh. These tests pin that a suppression PROVEN
+# by the source file warns, and that an empty column WITHOUT that proof still
+# fails exactly as before.
+
+def test_a_cms_suppressed_column_warns_instead_of_failing(con):
+    con.execute("ALTER TABLE profile ADD COLUMN readmit_hwr DOUBLE")
+    c = dq.column_has_data(con, "profile", "readmit_hwr", suppressed_by_source=True)
+    assert not c.passed
+    assert c.severity == dq.WARN
+    assert "SUPPRESSED" in c.detail
+
+
+def test_suppression_flag_does_not_excuse_a_column_with_data(con):
+    c = dq.column_has_data(con, "profile", "star_rating", suppressed_by_source=True)
+    assert c.passed
+
+
+def test_empty_column_without_proof_of_suppression_still_blocks(con):
+    """The original hole must stay closed: empty is not the same as suppressed."""
+    con.execute("ALTER TABLE profile ADD COLUMN readmit_hwr DOUBLE")
+    c = dq.column_has_data(con, "profile", "readmit_hwr")
+    assert c.severity == dq.ERROR and not c.passed

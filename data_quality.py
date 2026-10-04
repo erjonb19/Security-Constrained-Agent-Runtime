@@ -104,12 +104,30 @@ def no_fanout(con, child: str, parent: str) -> Check:
                  f"{child}={c} vs {parent}={p}")
 
 
-def column_has_data(con, table: str, column: str) -> Check:
+def column_has_data(con, table: str, column: str,
+                    suppressed_by_source: bool = False) -> Check:
     """A mapped column with nothing in it is a broken mapping, not sparse data.
 
     This is the check that the shipped Gold fails on readmit_hwr and ed_volume.
+
+    ONE EXCEPTION, AND IT IS NARROW
+    CMS sometimes withholds a measure for a whole reporting period and says so
+    in the file: every row is "Not Available" with footnote 4 ("Data suppressed
+    by CMS for one or more quarters"). That happened to Hybrid HWR in the
+    Oct 2026 release and stopped the whole monthly refresh. Nothing on our side
+    was broken, and blocking every other measure from updating protected nothing.
+
+    The caller passes `suppressed_by_source=True` ONLY when the source file
+    itself proves the suppression (see build_hospital_gold._cms_suppressed).
+    "The column is empty" is never enough on its own -- that is exactly the
+    signal a stale mapping produces, and it must stay an ERROR.
     """
     n = _one(con, f"SELECT count({column}) FROM {table}")
+    if n == 0 and suppressed_by_source:
+        return Check(f"column_has_data({column})", WARN, False,
+                     f"{column} is ENTIRELY NULL because CMS SUPPRESSED it this "
+                     f"period (every source row: 'Not Available', footnote 4). "
+                     f"Shipping with the column empty; not a mapping problem")
     return Check(f"column_has_data({column})", ERROR, n > 0,
                  f"{n} non-null values" if n else
                  f"{column} is ENTIRELY NULL -- the source column was probably "
